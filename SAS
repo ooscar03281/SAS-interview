@@ -1,0 +1,417 @@
+DM'LOG;CLEAR;OUT;CLEAR';
+libname ee "C:\Users\LENOVO\Google 雲端硬碟\data";
+
+Data findata;
+  infile "C:\Users\LENOVO\Google 雲端硬碟\data\財務資料.txt" missover firstobs=2  DLM="^" linesize=3000;
+ input sidno $ sname $ ind yrmon  RDexpenditures  cash totalasset totaldebt  equity NI  interest shortinvestments;
+ drop sname;
+   year=int(yrmon/100);
+  month=yrmon-year*100;
+    syrmon=year*12+month;
+  if month^=12 then delete;
+run;
+
+data director;
+ infile "C:\Users\LENOVO\Google 雲端硬碟\data\董監事持股狀況1205.txt" missover firstobs=2 DLM="^" linesize=3000;*/有缺漏值跳過、firstobs是從哪一行開始讀取資料/;
+ input sidno $ sname $ ind yrmon directorship number_director directortotalship Insiderownership share_totaldirecor totalshare n_independence;
+	drop sname;
+	 year=int(yrmon/100);
+run;
+proc sql;
+ create table findata_2 as /*創立一個檔案create table 檔名 as*/
+ select a.*, b.*	/*選擇變數這邊是全選，如果不要全選的話則會使用 a.變數名稱*/
+ from findata_1 as a left join director as b /*從findata_1中取出data 並將他取名為 a ，然後以sidno與year當作關鍵變數來以左邊為主合併 director 檔案資料*/
+ on  a.sidno=b.sidno and a.year=b.year ; 
+quit;
+data Findata_dir;
+  set findata_2 ;
+  if number_director=0 or number_director=. then delete;/*這邊是虛擬變數*/
+  else boardsize = log(number_director) ;/*董事會規模*/
+  AcademicRatio= n_academic/boardsize;/*獨立董事學術總和/董事總數個數*/
+  ava_directorship = directorship/number_director ; /*董事平均持股數*/
+  if n_academic=0 or  n_academic=. then d_acad=0;/*這邊是虛擬變數*/
+  else d_acad=1;
+  independence = (n_independence-n_academic)/number_director;
+run; 
+/*將雙元性給並進去,這要小心記得在上面要刪除重複值*/
+proc sql;
+ create table findata_dir
+ as select a.* , b.D_duality
+ from findata_dir as a left join ccc as b
+ on  a.sidno=b.sidno and a.year=b.year ; 
+quit;
+
+*====匯入股票資訊度的R平方(他是_RSQ_那項)====;
+data ee.rsq12mm1;
+	set ee.Rsq12m;
+	if _MODEL_ ='M0' then delete;
+	run; */我先把m0刪掉看看;
+proc sql;
+ create table Findata
+ as select a.*, b. _RSQ_
+ from  findata_dir as a left join ee.Rsq12mm1 as b
+ on  a.sidno=b.sidno and  a.year=b.year ; 
+quit;
+data Findata1;
+	set Findata;
+	Informativeness = (1-_RSQ_)/_RSQ_;
+	stockInformativeness = log(Informativeness);
+	run;
+	*=============================================*
+Leverage    為財務槓桿，計算方式為總負債/總資產
+Cash1		  為短期現金，計算方式為(現金+短期投資)/總資產
+*=============================================;
+data  ee.dd116;
+  set  Findata_roa2;
+  Leverage = totaldebt/totalasset;
+  cash1=(cash+shortinvestments)/totalasset;
+  run;
+  *==================RD做處理&FIRMSIZE===========================;
+data  f0116;
+  set ee.dd116;
+  RD=RDexpenditures/totalasset;
+  firmsize = LOG(totalasset);*這邊要注意原始的TA的單位;
+  run;
+   *====合併TEJ的ROA1 2 3====;
+data director4;
+ infile "C:\Users\LENOVO\Google 雲端硬碟\data\ROA ALL.txt" missover firstobs=2 DLM="^" linesize=3000;
+ input sidno $ sname $ ind yrmon  roa1 roa2	roa3 ;
+	drop sname;
+	 year=int(yrmon/100);
+	 roa1=roa1/100;
+	 roa2=roa2/100;
+	 roa3=roa3/100;
+run;
+proc sql;
+ create table roa1216
+ as select a.*, b.*
+ from f0116 as a left join director4 as b
+ on  a.sidno=b.sidno and a.year=b.year-1 ; 
+quit;
+*==================淨值市值比與TOBINQ(在TObinQ2計算SAS檔案中)===========================;
+data mv;
+ infile "C:\Users\LENOVO\Google 雲端硬碟\data\市值1205.txt" missover firstobs=2 DLM="^" linesize=3000;
+ input sidno $ sname $ yrmon  mv; 
+	drop sname;
+	 year=int(yrmon/100);
+	 mv=mv*1000;
+	newsidno=sidno*1;
+	drop sidno;
+	rename newsidno = sidno;
+run;
+proc sql;
+ create table ee.Final2019
+ as select a.*, b.*
+ from ee.Final2019 as a left join mv as b
+ on  a.sidno=b.sidno and a.year=b.year ; 
+quit;
+
+*====將%變為小數點方式表示======;
+data ee.final2019ten1;
+set ee.final2019ten1;
+DirectorOwnership =  share_totaldirecor/100;
+Insiderownership1 = Insiderownership/100;
+run; 
+*======匯入學術背景董事個數(以EXCEL檔匯入)========;
+%macro a;
+%do i=2004 %to 2017;
+proc import datafile="C:\Users\LENOVO\Google 雲端硬碟\碩論\論文撰寫\資料\學術背景原版\&i..xlsx" DBMS=EXCEL
+out=a&i;
+run;
+%end;
+%mend;
+%a;
+data a2013;
+set a2013;
+director_salary1=director_salary*1;
+drop director_salary;
+rename director_salary1=director_salary;
+manager_salary1=manager_salary*1;
+drop manager_salary;
+rename manager_salary1=manager_salary;
+run;
+*====================================*
+number_aca	學術背景獨董資料
+======================================;
+data number_aca;
+set a2005 a2006 a2007 a2008 a2009 a2010 a2011 a2012 a2013 a2014 a2015 a2016 a2017;
+keep idno name yrmon academic;
+run;
+
+
+*====將財務資料合併學術背景董事數量====;
+data ee.Number_aca;
+set ee.Number_aca;
+academic1=academic*1;
+drop academic;
+rename academic1=academic;
+rename idno=sidno;
+year=int(yrmon/10000);
+run;
+
+proc sql ;
+   create table ee.N_acafinal as/*建立資料檔*/
+   select  sidno, year, /*選哪幾攔*/
+           count(academic) as obs, sum(academic) as n_academic/*重新給予名稱*obs=計算學術背景個數, n_ =總和*/
+      from ee.Number_aca
+   group by year, sidno;/*可以根據給定數據列的每個成員對查詢結果進行分組統計，最終得到一個分組匯總表。  是用count(academic)計算完 然後再依照IDNO 以及 YEAR分組*/
+quit;
+data final2019;
+set ee.final20192;
+drop n_academic obs;
+run;
+
+proc sql;
+ create table Final20192
+ as select a.*, b.*
+ from  final2019 as a left join ee.N_acafinal as b
+ on  a.sidno=b.sidno and a.year=b.year ; 
+quit;
+
+data  ee.Final20193;
+set final2019;
+if n_academic=. then n_academic=0;
+if obs=. then obs=0;
+if n_academic=0  then d_acad=0;/*這邊是虛擬變數*/
+  else d_acad=1;
+  run;
+  *===================學術背景比例================;
+data  Final2019;
+set ee.final20193;
+drop independence AcademicRatio;
+run;
+data  ee.Final20194;
+set  Final2019;
+AcademicRatio= n_academic/boardsize;
+independence = (n_independence-n_academic)/number_director;
+run; 
+*==============RD處理==============;
+/*data  ee.final20194;
+  set   ee.Final20194;
+  RD=RDexpenditures/totalasset;
+  firmsize = LOG(totalasset);*這邊要注意原始的TA的單位;
+  DirectorOwnership =  share_totaldirecor/100;
+  Insiderownership1 = Insiderownership/100;
+  run;*/
+*============匯入年資======================*
+ee.tenure	為年資永久檔的
+*=========================================*;
+  data ee.final20195;
+  set ee.final20195;
+  drop tenure log_tenure;
+  run;
+proc sql;
+ create table Final2019ten
+ as select a.*, b.*
+ from ee.Final20195 as a left join ee.tenure as b
+ on  a.sidno=b.sidno and a.year=b.year ; 
+quit;
+data ee.final20196;
+set final2019ten;
+log_tenure =log(tenure);
+run;
+data f224;
+set ee.final20196;
+drop AcademicRatio;
+drop independence;
+run;
+data f224;
+set f224;
+AcademicRatio= n_academic/number_director;
+independence = (n_independence-n_academic)/number_director;
+run; 
+data f224;
+set f224;
+salesgrowth1 =  salesgrowth/10000; */以10 -2次方來表示;
+run;
+
+data ee.final0225;
+set ee.final0225;
+drop sum_patent;
+run;
+
+proc sql;
+ create table ee.final0226
+ as select a.*, b.*
+ from ee.final0225 as a left join ee.n_patent as b
+ on  a.sidno=b.sidno and a.year=b.year ; 
+quit;
+data ee.final0226;
+set ee.final0226;
+if sum_patent=. then sum_patent =0;
+log_patent = log(sum_patent +1);
+run; 
+
+*========*
+匯入女性董事資料
+ee.gender11 為女性董事資料
+*========*;
+Data gender11;
+  infile "C:\Users\LENOVO\Google 雲端硬碟\data\gender.txt" missover firstobs=2  DLM="^" linesize=3000;
+ input sidno $ sname $ yrmon gender11;
+ drop sname;
+ year=int(yrmon/100);
+sidno1=sidno *1;
+drop sidno;
+rename sidno1=sidno;
+run;
+proc sql;
+ create table finalgender
+ as select a.*, b.*
+ from ee.final0226 as a left join gender11 as b
+ on  a.sidno=b.sidno and a.year=b.year ; 
+quit;
+
+data ee.finalgender;
+set finalgender;
+if gender1=. then gender1=0;
+run;
+
+*=====================================================*
+Independence1  使用另一種獨立性(獨立董事/董事人數)
+Independence   獨立董事-學術背景獨立董事/董事人數
+*=====================================================;
+data ee.finalgender1;
+set ee.finalgender;
+Independence1 = (n_independence)/number_director;
+run;
+*==============刪除遺漏值====================*;
+data finalgender2;
+set ee.finalgender1;
+missvar =d_acad+Independence1+BoardSize+D_duality+firmSize+RD+Insiderownership1+DirectorOwnership+log_tenure+gender1+CASH1+tenure+salesgrowth1+AcademicRatio+Leverage+roa1+roa2+roa+roa3;
+run;
+
+data g1126;
+  set finalgender2;
+  where missingvar^=.;
+  run;
+
+data ee.missingvar;
+set g1126;
+if tenure=. then delete;
+run;
+
+*===盈餘管理===*
+DAC 為盈餘管理SAS永久檔
+================;
+data ee.earnmanage;
+set ee.dac;
+newsidno=sidno*1;
+drop sidno;
+rename newsidno = sidno;
+year=int(yrmon/100);
+run;
+
+proc sql;
+ create table ee.missingvar1
+ as select a.*, b.dac
+ from ee.missingvar as a left join ee.earnmanage as b
+ on  a.sidno=b.sidno and a.year=b.year ; 
+quit;
+*===刪除遺漏直===;
+data ee.missingvar1;
+set ee.missingvar1;
+if dac=. then delete;
+run;
+*===改用專利權數量而不是總和====*;
+proc sql;
+ create table ee.finance0423
+ as select a.*, b.n_patent
+ from ee.missingvar1 as a left join ee.sum_patent as b
+ on  a.sidno=b.sidno and a.year=b.year ; 
+quit;
+
+data ee.finance04231;
+set ee.finance0423;
+if n_patent=. then n_patent=0;
+log_n_patent=log(n_patent+1);
+run;
+
+*===CEO薪酬單位調整(百萬)====*;
+data ee.MISSINGVAR5;
+set ee.MISSINGVAR3;
+ceocompensation1 =log(ceocompensation);
+run;
+*====專利權數量===*;
+proc sql;
+ create table finan
+ as select a.*, b.n_patent
+ from ee.finance04231 as a left join N_patent as b
+ on  a.sidno=b.sidno and a.year=b.year ; 
+quit;
+
+
+/*LOGISTIC回歸*/
+%let excelname=Determinants of Academic Directors.xls;***最後檔案excel命名***;
+%let sheetname=logit;***最後檔案sheet命名***;
+%let class=ind year;***class固定效果變數***;
+
+
+*/%let control=C_SIZE	C_MB	C_CASH	C_DEBT	C_PRD;
+%let depvar=d_acad ;***應變數Y=0.1的***;
+%let reglist=Independence1 BoardSize D_duality firmSize  RD Insiderownership1 DirectorOwnership  log_tenure gender1;
+
+
+***處理離群值***;
+***vars=變數X(0.1的不能做離群處理要在下面在手動拿掉)***;
+*%let wlevel=%str(1 99); 
+*%let w=winsor; ***winsor:超過上界的=上界 trim:超過上界的=刪除***;
+*%include "C:\Users\user\Google 雲端硬碟 (s710631109@gm.ntpu.edu.tw)\NTPU\mba paper\Cash reduction\paper 分段\DATA\SASlibrary\winsorize.sas"; run;
+*%winsor(dsetin=reg1, dsetout=reg_1w, vars=&needwin &control, type=&w, pctl=&wlevel);
+
+/*data reg_1w;
+	set reg_1w;
+run;*/
+
+*** 有放交乘項要再+2 ***;
+%let n=%eval(%sysfunc(countw( &reglist))+1);
+%put &n;
+
+proc surveylogistic data=ee.missingvar;
+	class &class;
+	cluster sidno; *cluster firm;
+	model &depvar(desc)= &reglist &class/RSQUARE;***(desc)一定要加才會是Y=1的機率,logistic的Rsquare是Pseudo r-square***;
+	ods output ParameterEstimates=pest1 RSquare=RSquare;
+	ods output NObs=obs1 ClassLevelInfo=classinfo;
+quit; run;
+
+*** 將資料整理成Paper格式 ***;
+data param2;
+ length coef $9.;
+ set pest1;
+ if _n_<=&n;
+  if Probt<0.1 then p='*  '; if Probt<0.05 then p='** ';
+  if Probt<0.01 then p='***'; 
+ t='('||put(tvalue,7.2)||')'||p; 
+ coef=put(Estimate, 9.4);
+ order=_n_;
+ keep order Variable coef t;
+run;
+
+proc sort data=param2; by order variable; run;
+proc transpose data=param2 out=out1; by order variable;
+ var coef t; run; 
+
+data obs2;
+ set obs1; 
+	*if label='Number of Observations Used';***SAS英文版適用****;
+	if label='使用的觀測值數目';***SAS中文版適用****;
+	label='Obs';
+	col1=put(N,$9.);
+ rename label=variable ; keep label col1; run; 
+
+data r2;
+	set rsquare;
+	col1=put(nvalue1,9.4);
+	rename label1 =variable;
+	keep label1 col1;
+run;
+
+data out1; set out1 r2 obs2 ; run; proc print; run;
+
+
+PROC EXPORT DATA= WORK.OUT1 
+             OUTFILE= "C:\Users\LENOVO\Google 雲端硬碟\碩論\結果區\&excelname" 
+            DBMS=EXCELCS REPLACE;
+     SHEET="&sheetname"; 
+RUN;

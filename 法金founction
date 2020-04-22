@@ -1,0 +1,748 @@
+##################################
+#                                #
+# B001_法金模型 I、II、III       #
+#                                #               
+##################################
+
+# Datafilepath = paste0('000_Data/',DatafileName)
+# class_type = "法金"
+model_type="法金模型_Hybrid_II"
+model_year = '2019'
+Season_select = "Q4"
+#   
+# ModelDatapath='/database/View_Database.mdb'
+# channel_path='/database/View_Database.mdb'
+
+# View_Corporation_ITOIII(Datafilepath,class_type,model_type,model_year,Season_select,ModelDatapath,channel_path)
+  
+View_Corporation_ITOIII<-function(Datafilepath,class_type,model_type,model_year,Season_select,ModelDatapath,channel_path){
+  
+  model_month<-switch(Season_select, "Q1" = "03", "Q2" = "06", "Q3" = "09", "Q4" = "12")
+  model_yymm =  paste0(model_year,model_month)
+  
+  message_list<-NULL
+  
+  
+  # print(paste0("*****",model_yymm,"-",model_type,"*****"))
+  cat(paste0("*****",model_yymm,"-",model_type,"*****",'\n'))
+  
+  ##################################
+  #                                #
+  # 200_資料匯入及清理             #
+  #                                #               
+  ##################################
+  
+   # 載入監控資料 - 函數
+  load_clear_ViewData<-function(Datafilepath,model_type,model_year,season){
+    
+    
+    model_class_select<-switch(model_type, "法金模型_Hybrid_I" = "1", "法金模型_Hybrid_II" = "2", "法金模型_Hybrid_III" = "3")
+    
+    require(readxl)
+    # Data_<- read.xlsx(xlsxFile = paste0(Data_path,DatafileName), sheet  = "RowData")
+    Data_row_01<-readxl::read_excel(path=Datafilepath,sheet="RAWDATA")
+    Data_row_01<-as.data.frame(Data_row_01)
+    
+    Data_defaultRank_01<-readxl::read_excel(path=Datafilepath,sheet="預設評等名單")
+    Data_defaultRank_01<-as.data.frame(Data_defaultRank_01)
+    
+    
+    Data_reject_01<-readxl::read_excel(path=Datafilepath,sheet="拒往")
+    Data_reject_01<-as.data.frame(Data_reject_01)
+    
+    Data_overdue_01<-readxl::read_excel(path=Datafilepath,sheet="客戶逾期日")
+    Data_overdue_01<-as.data.frame(Data_overdue_01)
+    
+    Data_Bailout_01<-readxl::read_excel(path=Datafilepath,sheet="紓困客戶註記")
+    Data_Bailout_01<-as.data.frame(Data_Bailout_01)
+    
+    Data_Bailout_case<-readxl::read_excel(path=Datafilepath,sheet="紓困案名單")
+    Data_Bailout_case<-as.data.frame(Data_Bailout_case)
+    
+    Data_row_PSI<-readxl::read_excel(path=Datafilepath,sheet="PSIRowData")
+    Data_row_PSI<-as.data.frame(Data_row_PSI)
+    
+    Data_row_PSI_delete<-readxl::read_excel(path=Datafilepath,sheet="PSI_移除名單")
+    Data_row_PSI_delete<-as.data.frame(Data_row_PSI_delete)  
+    
+    
+    # 資料清理
+    ## 拒往日期
+    
+    # as.Date(as.data.frame(Data_reject_01[1,"reject_Data"]))
+    colnames(Data_reject_01)[which(colnames(Data_reject_01)=="拒往日期")]<-"reject_Data"
+    Data_reject_01[,"reject_Data"]<-format(as.data.frame(Data_reject_01[,"reject_Data"]), "%Y%m%d")
+    Data_reject_01[,"reject_Data"]<-as.numeric(Data_reject_01[,"reject_Data"])
+    Data_reject<-sqldf("select ID, min(reject_Data) as reject_Data_early from Data_reject_01 where reject_Data is not null group by ID")
+    
+    ## 客戶逾期日
+    colnames(Data_overdue_01)[which(colnames(Data_overdue_01)=="統編")]<-"ID"
+    Data_overdue_01[,"overdue_day"]<-as.numeric(format(Data_overdue_01[,"實際逾期日"], "%Y%m%d"))
+    Data_overdue<-sqldf("select ID, min(overdue_day) as overdue_day from Data_overdue_01 where overdue_day is not null group by ID")
+    
+    ## 紓困客戶名單
+    Data_Bailout_01[,"Bailout_flag"]<-Data_Bailout_01[,"紓困客戶註記"]
+    Data_Bailout<-Data_Bailout_01
+    
+    #名稱調整
+    colnames(Data_row_01)[which(colnames(Data_row_01)=="核准日期")]<-"approve_DT"
+    colnames(Data_row_01)[which(colnames(Data_row_01)=="模型種類")]<-"model_class"
+    colnames(Data_row_01)[which(colnames(Data_row_01)=="模型評等")]<-"model_rating"
+    colnames(Data_row_01)[which(colnames(Data_row_01)=="評分")]<-"score"
+    colnames(Data_row_01)[which(colnames(Data_row_01)=="評分日期")]<-"score_DT"
+    colnames(Data_row_01)[which(colnames(Data_row_01)=="AHP評等")]<-"AHP_rating"
+    colnames(Data_row_01)[which(colnames(Data_row_01)=="最終評等")]<-"fin_rating"
+    colnames(Data_row_01)[which(colnames(Data_row_01)=="金控評等")]<-"group_rating"
+    colnames(Data_row_01)[which(colnames(Data_row_01)=="App ID")]<-"App_ID"
+    Data_row_01[,"model_class"]<-as.character(Data_row_01[,"model_class"])
+    
+    
+    colnames(Data_defaultRank_01)[which(colnames(Data_defaultRank_01)=="核准日期")]<-"approve_DT"
+    colnames(Data_defaultRank_01)[which(colnames(Data_defaultRank_01)=="模型種類")]<-"model_class"
+    colnames(Data_defaultRank_01)[which(colnames(Data_defaultRank_01)=="模型評等")]<-"model_rating"
+    
+    colnames(Data_defaultRank_01)[which(colnames(Data_defaultRank_01)=="App ID")]<-"App_ID"
+    
+    
+    ##
+    # 排除條件設定
+    Data_row_01[,"flag1"]<-ifelse(substr(Data_row_01[,"ID"],1,1) %in% c("1","2","3","4","5","6","7","8","9","0"),0,1)
+    Data_row_01[,"flag2"]<-sqldf("select case when score is null or score ='NULL' then 1 else 0 end as flag2  from Data_row_01")
+    Data_row_01[,"flag3"]<-sqldf("select case when model_rating in ('FI','BK','CG','LG') then 1 else 0 end as flag3  from Data_row_01")
+    Data_row_01[,"flag4"]<-sqldf("select case when fin_rating in ('D') then 1 else 0 end as flag4  from Data_row_01")
+    start_month<-format(ymd(paste0((as.numeric(model_year)),"-",switch(season, "Q1" = "03", "Q2" = "06", "Q3" = "09", "Q4" = "12"),"-01"))+months(1)-months(24), "%Y%m%d")
+    Data_row_01[,"flag5"]<-sqldf(paste0("select case when approve_DT < ", start_month ," then 1 else 0 end as flag5  from Data_row_01"))
+    Data_row_01[,"flag6"]<-sqldf(paste0("select case when b.ID is not null then 1 else 0 end as flag5  from Data_row_01 a left join Data_Bailout_case b on a.ID = b.ID "))
+    
+    Data_row_01[,"flag7"]<-sqldf(paste0("select case when a.approve_DT > b.reject_Data_early then 1 else 0 end as flag7 from Data_row_01 a left join Data_reject b on a.ID = b.ID"))
+    
+    Data_row_01[,"flag8"]<-sqldf(paste0("select case when a.ID = b.ID and  a.App_ID=b.App_ID then 1 else 0 end as flag8 from Data_row_01 a left join Data_defaultRank_01 b on a.ID = b.ID and  a.App_ID=b.App_ID "))
+    
+
+    Data_row_01[,"Delete_flag"]<-ifelse(rowSums(Data_row_01[,c("flag1","flag2","flag3","flag4","flag5","flag6","flag7","flag8")])>0,"N","Y")
+    
+    # 違約判斷
+    
+    default_flag<-sqldf("select a.ID,
+                        case when b.reject_Data_early is not null then 1 else 0 end as df_flag1, 
+                        case when c.overdue_day is not null then 1 else 0 end as df_flag2,
+                        case when d.Bailout_flag is not null then 1 else 0 end as df_flag3
+                        from Data_row_01 a
+                        
+                        left join Data_reject b on a.ID=b.ID
+                        left join Data_overdue c on a.ID=c.ID
+                        left join Data_Bailout d on a.ID=d.ID
+                        
+                        
+                        ")
+    
+    default_flag[,"DF"]<-ifelse(rowSums(default_flag[,c("df_flag1","df_flag2","df_flag3")])>0,1,0)
+    
+    default_flag<-sqldf("select distinct * from default_flag")
+    # 
+    
+    Data_row_<-sqldf("Select a.*,b.DF from Data_row_01 a left join default_flag b on a.ID=b.ID")
+    
+    
+    Data_row<-sqldf("select * from Data_row_ where Delete_flag='Y'")
+    score_<-as.numeric(Data_row[,"score"])
+    
+    Data_row[,"score_"]<-max(score_)-score_
+    Data_row[,"Y_"]<-Data_row[,"DF"]
+    Data_row[,"Rating_"]<-Data_row[,"model_rating"]
+    
+    # if(is.null(model_list)){
+    #   model_type<-model_flag
+    # }else{
+    #   
+    #   model_type_list<-paste0(model_flag,"_",model_list)
+    # } 
+    
+    
+    # PSI 資料清理
+    
+    #名稱調整
+    Data_row_PSI<-as.data.frame(Data_row_PSI)
+    Data_row_PSI_delete<-as.data.frame(Data_row_PSI_delete)
+    colnames(Data_row_PSI_delete)[which(colnames(Data_row_PSI_delete)=="App ID")]<-"App_ID"
+    colnames(Data_row_PSI)[which(colnames(Data_row_PSI)=="App ID")]<-"App_ID"
+    colnames(Data_row_PSI)[which(colnames(Data_row_PSI)=="核准日期")]<-"approve_DT"
+    Data_row_PSI[,"approve_DT"]<-as.numeric(ifelse(Data_row_PSI[,"approve_DT"]=="NULL",NA,Data_row_PSI[,"approve_DT"]))
+    
+    colnames(Data_row_PSI)[which(colnames(Data_row_PSI)=="模型種類")]<-"model_class"
+    colnames(Data_row_PSI)[which(colnames(Data_row_PSI)=="模型評等")]<-"model_rating"
+    colnames(Data_row_PSI)[which(colnames(Data_row_PSI)=="評分")]<-"score"
+    colnames(Data_row_PSI)[which(colnames(Data_row_PSI)=="評分日期")]<-"score_DT"
+    
+    Data_row_PSI[,"score_DT"]<-as.numeric(gsub("/","",Data_row_PSI[,"score_DT"]))
+    colnames(Data_row_PSI)[which(colnames(Data_row_PSI)=="AHP評等")]<-"AHP_rating"
+    colnames(Data_row_PSI)[which(colnames(Data_row_PSI)=="最終評等")]<-"fin_rating"
+    colnames(Data_row_PSI)[which(colnames(Data_row_PSI)=="金控評等")]<-"group_rating"
+    
+    Data_row_PSI[,"model_class"]<-as.character(Data_row_PSI[,"model_class"])
+    calibration_DT = '20161001'
+    # 排除條件設定
+    Data_row_PSI[,"flag1"]<-ifelse(substr(Data_row_PSI[,"ID"],1,1) %in% c("1","2","3","4","5","6","7","8","9","0"),0,1)
+    Data_row_PSI[,"flag2"]<-sqldf("select case when score is null or score ='NULL' or model_rating is null or model_rating = 'NULL' or model_rating = '-' then 1 else 0 end as flag2  from Data_row_PSI")
+    Data_row_PSI[,"flag3"]<-sqldf("select case when model_rating in ('FI','BK','CG','LG') then 1 else 0 end as flag3  from Data_row_PSI")
+    Data_row_PSI[,"Rating_"]<-as.numeric(Data_row_PSI[,"model_rating"])
+    Data_row_PSI[,"flag4"]<-sqldf(paste0("select case when score_DT < ", calibration_DT ," then 1 else 0 end as flag4  from Data_row_PSI"))
+    Data_row_PSI[,"flag5"]<-sqldf(paste0("select case when b.ID is not null then 1 else 0 end as flag5  from Data_row_PSI a left join Data_row_PSI_delete b on a.ID = b.ID  and a.App_ID=b.App_ID"))
+    Data_row_PSI[,"Delete_flag"]<-ifelse(rowSums(Data_row_PSI[,c("flag1","flag2","flag3","flag4","flag5")])>0,"N","Y")
+    #Data_row_PSI[,"Delete_flag"]<-ifelse(rowSums(Data_row_PSI[,c("flag1","flag2")])>0,"N","Y")
+    
+    Data_row_PSI<-sqldf("select * from Data_row_PSI where Delete_flag='Y'")
+    
+    data_verify_miss<-sqldf(paste0("select * from Data_row where model_class ='",model_class_select,"'"))
+    modelrowdata_PSI<-sqldf(paste0("select * from Data_row_PSI where model_class ='",model_class_select,"'"))
+    
+    
+    result<-list(data_verify_miss=data_verify_miss,modelrowdata_PSI=modelrowdata_PSI)
+    
+    return(result)
+  }
+  
+  cat("完成監控資料載入.....",'\n')
+  
+   
+  # 載入監控資料
+  ViewData<-load_clear_ViewData(Datafilepath=Datafilepath,model_type=model_type,model_year=model_year,season=Season_select)
+  
+  # cat(print("完成資料清理....."))
+  cat("完成資料清理.....",'\n')
+  
+  # 載入模型因子清單及資料調整  - 函數
+  load_adjusr_ModelVarData<-function(model_type,data_verify_miss,ModelDatapath=ModelDatapath){
+    
+    
+    # Sql code 查詢函數
+    sqlcode_queny <- function(sqlcode,channel_path){
+      
+      channel <- odbcConnectAccess(channel_path)
+      
+      DataQuery<-sqlQuery(channel,sqlcode)
+      
+      odbcClose(channel)
+      
+      return(DataQuery)
+    }
+    
+    
+    
+    # 載入資料正確性之參數表
+    var_parameter_miss_code<-paste0("select class, var_code,var_name,model ,trim(miss_desc) as miss_desc1 ,data_type  from var_parameter_miss_table where model = '",model_type,"' ")
+    
+    var_parameter_miss<-sqlcode_queny(sqlcode=var_parameter_miss_code,channel_path=paste0(getwd(),ModelDatapath))
+    colnames(var_parameter_miss)[which(colnames(var_parameter_miss)=="miss_desc1")]<-'miss_desc'
+    
+    # 載入資料完整性之參數表
+    var_parameter_code<-paste0("select class, var_code,var_name,model ,trim(miss_desc) as miss_desc1  from var_parameter_table where model = '",model_type,"' ")
+    var_parameter<-sqlcode_queny(sqlcode=var_parameter_code,channel_path=paste0(getwd(),ModelDatapath))
+    colnames(var_parameter)[which(colnames(var_parameter)=="miss_desc1")]<-'miss_desc'
+    
+    
+    # 載入模型建置樣本
+    model_build_data_code<-paste0("select * from model_build_all where model  in ('",model_type,"')")
+    model_build_data<-sqlcode_queny(sqlcode=model_build_data_code,channel_path=paste0(getwd(),ModelDatapath))
+   
+    # 載入模型PSI
+    model_build_data_PSI_code<-paste0("select * from model_build_all_PSI where  model  in ('",model_type,"')")
+    model_build_data_PSI<-sqlcode_queny(sqlcode=model_build_data_PSI_code,channel_path=paste0(getwd(),ModelDatapath))
+    
+    tran_list_num<-var_parameter_miss[var_parameter_miss[,"data_type"]=="numeric","var_code"]
+    
+    if(length(tran_list_num)!=1){
+      for(i in 1:length(tran_list_num)){
+        
+        item <-  as.character(tran_list_num[i])
+        
+        data_verify_miss[,item]<-as.numeric(sqldf(paste0("select ",item," from data_verify_miss"))[,1])
+        
+      }
+    }
+    
+    for( item in 1:length(data_verify_miss)){
+
+      if(substr(colnames(data_verify_miss)[item],1,2)=="CP"){
+
+        data_verify_miss[which(is.na(data_verify_miss[,colnames(data_verify_miss)[item]])),colnames(data_verify_miss)[item]] = -99981
+
+      }
+      
+      if(colnames(data_verify_miss)[item]=="NF0083"){
+        
+        data_verify_miss[which(is.na(data_verify_miss[,colnames(data_verify_miss)[item]])),colnames(data_verify_miss)[item]] = -99981
+        
+      }
+
+
+    }
+    
+    
+    result<-list(var_parameter_miss=var_parameter_miss,var_parameter=var_parameter,model_build_data=model_build_data,model_build_data_PSI=model_build_data_PSI,data_verify_miss=data_verify_miss)
+    
+    return(result)
+  }
+  
+  
+  # 載入模型因子清單及資料調整
+  ModelVarData<-load_adjusr_ModelVarData(model_type=model_type,data_verify_miss=ViewData$data_verify_miss,ModelDatapath=ModelDatapath)
+  
+  message_list<-c(message_list,"完成模型相關資料載入....")
+  
+  ##################################
+  #                                #
+  # 200_資料完整性                 #
+  #                                #               
+  ##################################
+    
+    
+    
+    # 資料正確性分析
+    
+    Data_desc_summary00<-var_stat_conti(datafile = ModelVarData$data_verify_miss,var_parameter = ModelVarData$var_parameter_miss,sort_col="var_name",class_index=class_type,model_index=model_type,yymm_index=model_yymm)
+    
+    Data_desc_summary<-Data_desc_summary00$var_desc
+    
+    cat("完成資料正確性.....",'\n')
+    # cat(print("完成資料正確性....."))
+    
+    message_list<-c(message_list,"完成資料正確性.....")
+    
+    # print(Data_desc_summary)
+      
+    ## 資料完整性分析
+    Data_miss_summary<-Data_miss(datafile=ModelVarData$data_verify_miss,var_parameter=ModelVarData$var_parameter,sort_col="var_name",class_index=class_type,model_index=model_type,yymm_index=model_yymm)
+    
+    
+    
+    
+    ## 縱向檢視
+    Data_colmiss<-Data_miss_summary$colmiss
+    
+    ## 橫向檢視
+    Data_rowmiss<-Data_miss_summary$rowmiss
+    
+    message_list<-c(message_list,"完成資料完整性.....")
+    # cat(print("完成資料完整性....."))
+    cat("完成資料完整性.....",'\n')
+    ##################################
+    #                                #
+    # 300_模型排序能力 - AUC Gini KS #
+    #                                #               
+    ##################################
+    
+    Verify_Model_sorting=TRUE
+    
+    #設定模型名稱
+    Verify_Model_sorting_data<-ModelVarData$data_verify_miss
+    
+    # 彙總表
+    Ranksummary<-NULL
+    Ranksummary<-get_Ranksummary(datafile=Verify_Model_sorting_data,model_build_datafile = ModelVarData$model_build_data,class_index=class_type,model_index=model_type,yymm_index=model_yymm)
+    
+    
+    #模型排序能力 - AUC Gini KS
+    model_index_Data<-NULL
+    model_index_Data<-NULL
+    model_index_summary<-NULL
+    
+    model_table_Data<-NULL
+    model_table_rating<-NULL
+    
+    model_table_run<-NULL
+    model_summary_Data<-NULL
+    model_summary_rating<-NULL
+  
+    
+    if(Verify_Model_sorting==TRUE){  
+      
+      if(length(which(Verify_Model_sorting_data$Y_==0))==dim(Verify_Model_sorting_data)[1]){
+        
+        model_summary_Data<-data.frame(name=c("AUC","Gini","KS"),value=c(NA,NA,NA),verify_desc=c("本次監控樣本無違約樣本","本次監控樣本無違約樣本","本次監控樣本無違約樣本"))
+        
+        model_summary_rating<-data.frame(name=c("AUC(by 評等試算)","Gini(by 評等試算)","KS(by 評等試算)"),value=c(NA,NA,NA),verify_desc=c("本次監控樣本無違約樣本","本次監控樣本無違約樣本","本次監控樣本無違約樣本"))
+        
+        message_list<-c(message_list,"本次監控樣本無違約樣本...")
+        
+         }else{
+           
+        model_index_Data<-cal_model_index(datafile=Verify_Model_sorting_data,cal_name="Data",seq_num = 50,class_index=class_type,model_index=model_type,yymm_index=model_yymm)
+        
+        model_index_Rating<-cal_model_index(datafile=Verify_Model_sorting_data,cal_name="Rating_",seq_num = NULL,class_index=class_type,model_index=model_type,yymm_index=model_yymm)
+        
+        model_summary_Data<-data.frame(name=c("AUC","Gini","KS"),value=c(model_index_Data$AUC_value,model_index_Data$Gini_value,model_index_Data$KS_value),verify_desc=c(model_index_Data$AUC_desc,model_index_Data$Gini_desc,model_index_Data$KS_desc))
+        
+        model_summary_rating<-data.frame(name=c("AUC(by 評等試算)","Gini(by 評等試算)","KS(by 評等試算)"),value=c(model_index_Rating$AUC_value,model_index_Rating$Gini_value,model_index_Rating$KS_value),verify_desc=c(model_index_Rating$AUC_desc,model_index_Rating$Gini_desc,model_index_Rating$KS_desc))
+        
+        model_table_Data<-model_index_Data$cal_table
+        model_table_rating<-model_index_Rating$cal_table
+        model_table_run<-TRUE
+        
+        message_list<-c(message_list,"完成AUC, Gini, KS 檢驗.....")
+        
+         }
+      
+    } 
+    
+    model_index_summary<-rbind(model_summary_Data,model_summary_rating)
+    
+    if(!is.null(model_index_summary)){
+      model_index_summary[,"Aspect"]<-class_type
+      model_index_summary[,"Model"]<-model_type
+      model_index_summary[,"Monitor_Date"]<-model_yymm
+      model_index_summary<-model_index_summary[,c( "Aspect","Model","Monitor_Date","name","value","verify_desc")]
+    }
+    
+    
+    # cat(print("完成AUC, Gini, KS 檢驗....."))
+    cat("完成AUC, Gini, KS 檢驗.....",'\n')
+    ##################################
+    #                                #
+    # 300_模型排序能力 - 好壞比      #
+    #                                #               
+    ##################################  
+    
+    Verify_Model_lnOdds=TRUE
+    
+    Odds_summary_table<-NULL
+      
+    Model_lnOdds_Data<-ModelVarData$data_verify_miss
+      
+    if(Verify_Model_lnOdds==TRUE){
+      
+      # Ranksummary_lnOdd<-get_Ranksummary(datafile=Verify_Model_sorting_data,model_build_datafile = ModelVarData$model_build_data,class_index=class_type,model_index=model_type,yymm_index=model_yymm)
+      
+      Ranksummary_lnOdd <-Ranksummary
+      Odds_summary_table<-get_Odds_new(datafile = Ranksummary_lnOdd,cal_type="summary",class_index=class_type,model_index=model_type,yymm_index=model_yymm)
+      
+      # 刪除
+      Ranksummary_lnOdd<-NULL
+      
+      message_list<-c(message_list,"完成好壞比檢驗.....")
+      
+    } else {
+      
+      Odds_summary_table<-NULL
+    }
+    
+      # cat(print("完成好壞比檢驗....."))
+    
+      cat("完成好壞比檢驗.....",'\n')
+    ##################################
+    #                                #
+    # 400_模型準確性 二項式檢定      #
+    #                                #               
+    ##################################
+    
+    Verify_Model_binomial=TRUE
+    alpha <- 0.01
+    model_Binomail_data<-NULL
+    model_Binomail_data<-ModelVarData$data_verify_miss
+    
+    
+    Ranksummary_Binomail<-NULL
+    binomial_summary<-NULL
+    model_binomial<-NULL
+    binomial_summary_table<-NULL
+    
+    if(Verify_Model_binomial==TRUE){
+      
+      # Ranksummary_Binomail<-get_Ranksummary(datafile=model_Binomail_data,model_build_datafile = ModelVarData$model_build_data,class_index=class_type,model_index=model_type,yymm_index=model_yymm)
+      
+      Ranksummary_Binomail<-Ranksummary
+      
+      binomial_summary<-get_binomial_test_new(datafile = Ranksummary_Binomail,cal_type="summary",alpha=alpha,class_index=class_type,model_index=model_type,yymm_index=model_yymm)
+      
+      
+      model_binomial<-data.frame(Aspect=class_type,Model=model_type,Monitor_Date=model_yymm,name=c("Binomial Test"),value=binomial_summary$Binomail_outpoint,verify_desc=c(binomial_summary$Binomial_desc))
+      binomial_summary_table<-binomial_summary$Binomial_table
+      
+      message_list<-c(message_list,"完成Binomial檢驗.....")
+      
+    }
+    
+    # cat(print("完成Binomial檢驗....."))
+    cat("完成Binomial檢驗.....",'\n')
+    ##################################
+    #                                #
+    # 400_模型穩定性                 #
+    #                                #               
+    ##################################
+    
+    
+    # get_summary_PSI(datafile= model_PSI_data,model_build_datafile = ModelVarData$model_build_data_PSI,class_index=class_type,model_index=model_type,yymm_index=model_yymm)
+    
+    
+    Verify_Model_PSI=TRUE
+    model_PSI_data<-ViewData$modelrowdata_PSI
+    
+    PSI_summary<-NULL
+    model_PSI<-NULL
+    PSI_summary_table<-NULL
+    
+    if(Verify_Model_PSI==TRUE){
+  
+      
+      PSI_summary<-get_summary_PSI(datafile = model_PSI_data,model_build_datafile = ModelVarData$model_build_data_PSI,class_index=class_type,model_index=model_type,yymm_index=model_yymm)
+        
+      
+      model_PSI<-data.frame(Aspect=class_type,Model=model_type,Monitor_Date=model_yymm,name=c("PSI"),value=PSI_summary$PSI_value,verify_desc=c(PSI_summary$PSI_desc))
+      # ggsave(PSI_summary$PSI_plot,filename = paste0(output_path,"PSI_index_",model_type,".png"),width = 20, height = 15, units = "cm")
+      PSI_summary_table<-PSI_summary$PSI_table
+      
+      message_list<-c(message_list,"完成PSI檢驗.....")
+    }else{
+      model_PSI<-NULL
+      PSI_table<-NULL
+    }
+    
+    # print(PSI_summary)
+    # cat(print("完成PSI檢驗....."))
+    cat("完成PSI檢驗.....",'\n')
+    # 彙整模型結果
+    model_IndexDesc_summary<-rbind(model_index_summary,model_binomial,model_PSI)
+    
+    ##################################
+    #                                #
+    # 500_模型結果匯出               #
+    #                                #               
+    ##################################
+    digit = 6
+    
+    ### 存入資料函數
+    sql_updata_queny <- function(datafile,TableName,model_index=model_type,yymm_index=model_yymm,channel_path='/database/View_Database.mdb'){
+      
+      channel <- odbcConnectAccess(paste0(getwd(),channel_path))
+      
+      sql_code <-sprintf("select * from %s  where Model = '%s' and Monitor_Date = '%s'",TableName,model_index,yymm_index)
+      
+      DataQuery<-sqlQuery(channel,sql_code)
+      
+      
+      if(dim(DataQuery)[1]>0 && !is.null(dim(DataQuery)[1])){
+        
+        delete_code <-sprintf("delete * from %s  where Model = '%s' and Monitor_Date = '%s'",TableName,model_index,yymm_index)
+        
+        sqlQuery(channel,delete_code)
+        
+      } 
+      
+      
+      sqlSave(channel=channel,dat=datafile,tablename = TableName,rownames = FALSE, append = TRUE)
+      
+      odbcClose(channel)
+      
+    }
+    
+    
+    
+    #資料正確性
+    colnames(Data_desc_summary)[colnames(Data_desc_summary)=="Median"] <-"Medium"
+    # colnames(Data_desc_summary)<-c("Aspect","Model","Monitor_Date","Factor_Code","Factor_Name","Min","Q1","Medium","Q3","Max","Mean","Mode")
+    sql_updata_queny(datafile= Data_desc_summary,TableName= 'Data_desc_summary',model_index=model_type,yymm_index=model_yymm,channel_path=channel_path)
+    # write.xlsx(Data_desc_summary,paste0(output_path,"模型驗證_",model_type,".xlsx"),sheetName="資料正確性",row.names=FALSE, append=FALSE)
+    cat(paste0("匯出資料正確性......",'\n'))
+    
+    message_list<-c(message_list,"匯出資料正確性......")
+    
+    Sys.sleep(1)
+    
+    
+    #資料完整性
+    Data_colmiss[,"Missing_Value_ratio"]<-round(Data_colmiss[,"Missing_Value_ratio"],digit)
+    
+    colnames(Data_colmiss)<-c("Aspect","Model","Monitor_Date","Factor_Code","Factor_Name","Sample_Number","Missing_Value_Number","Missing_Value_ratio")
+    sql_updata_queny(datafile= Data_colmiss,TableName= 'Data_colmiss',model_index=model_type,yymm_index=model_yymm,channel_path=channel_path)
+    
+    # write.xlsx(Data_colmiss,paste0(output_path,"模型驗證_",model_type,".xlsx"),sheetName="資料完整性-縱向檢視",row.names=FALSE, append=TRUE)   
+    cat(paste0("匯出資料完整性-縱向檢視......",'\n'))
+    
+    message_list<-c(message_list,"匯出資料完整性-縱向檢視......")
+    Sys.sleep(1)
+    
+    
+    Data_rowmiss[,"ratio_NAorBlank"]<-round(Data_rowmiss[,"ratio_NAorBlank"],digit)
+    Data_rowmiss[,"Cum_num_count"]<-round(Data_rowmiss[,"Cum_num_count"],digit)
+    
+    
+    if(sum(colnames(Data_rowmiss)=="class")==0){
+      colnames(Data_rowmiss)<-c("Aspect","Model","Monitor_Date","Missing_Value_Number","Sample_Number","Sample_ratio","Cum_Sample_ratio")
+      Data_rowmiss[,"class"]<-""
+    }else{
+      colnames(Data_rowmiss)<-c("Aspect","Model","Monitor_Date","Missing_Value_Number","Sample_Number","Sample_ratio","Cum_Sample_ratio","class")
+      
+    }
+    
+    sql_updata_queny(datafile= Data_rowmiss,TableName= 'Data_rowmiss',model_index=model_type,yymm_index=model_yymm,channel_path=channel_path)
+    cat(paste0("匯出資料完整性-橫向檢視......",'\n'))
+    
+    message_list<-c(message_list,"匯出資料完整性-橫向檢視......")
+    Sys.sleep(1)
+    
+    
+    
+    
+    
+    # 彙總表
+    
+    colnames(Ranksummary)<-c("Aspect","Model","Monitor_Date","Rank","Baseline_Total","Baseline_Good","Baseline_Bad","Predicted_PD","Total_Num","Normal_Num","Default_Num","Total_ratio","Normal_ratio","Default_ratio","Default_rate","Total_Cum_ratio","Normal_Cum_ratio","Default_Cum_ratio")
+    sql_updata_queny(datafile= Ranksummary,TableName= 'Rank_dis_summary',model_index=model_type,yymm_index=model_yymm,channel_path=channel_path)
+    cat(paste0("匯出評等彙總表......",'\n'))
+    message_list<-c(message_list,"匯出評等彙總表......")
+    Sys.sleep(1)
+    
+    
+    #模型排序能力
+    colnames(model_IndexDesc_summary)<-c("Aspect","Model","Monitor_Date","Validation_Index","Validation_Index_Value","Verification_desc")
+    model_IndexDesc_summary[,"Validation_Index_Value"]<-round(model_IndexDesc_summary[,"Validation_Index_Value"],6)
+    
+    sql_updata_queny(datafile= model_IndexDesc_summary,TableName= 'model_summary_View',model_index=model_type,yymm_index=model_yymm,channel_path=channel_path)
+    
+    
+    message_list<-c(message_list,"匯出模型彙總表......")
+    Sys.sleep(1)
+    
+    
+  
+     if(!is.null(model_table_run)){
+    
+    #AUC_table-1 rating
+    AUC_cal_table<-model_table_rating[2:dim(model_table_rating)[1], c("Aspect","Model","Monitor_Date","num","num_total","num_good","num_bad","Cum_total_ratio","Cum_good_ratio" ,"Cum_bad_ratio","AUC_high","AUC_delta","AUC_index","index_flag")]
+    
+    colnames(AUC_cal_table)<-c('Aspect', 'Model', 'Monitor_Date', 'Rank', 'Total_Num', 'Normal_Num', 'Default_Num', 'Total_Cum_ratio', 'Normal_Cum_ratio', 'Default_Cum_ratio',"AUC_high","AUC_delta","AUC_index","index_flag")
+    
+    AUC_cal_table[,"AUC_high"]<-round(AUC_cal_table[,"AUC_high"],digit)
+    AUC_cal_table[,"AUC_delta"]<-round(AUC_cal_table[,"AUC_delta"],digit)
+    AUC_cal_table[,"AUC_index"]<-round(AUC_cal_table[,"AUC_index"],digit)
+    
+    sql_updata_queny(datafile= AUC_cal_table,TableName= 'AUC_table_rank',model_index=model_type,yymm_index=model_yymm,channel_path=channel_path)
+    Sys.sleep(1)
+    
+    
+    #AUC_table-2 Data
+    AUC_cal_table_data<-model_table_Data[2:dim(model_table_Data)[1], c("Aspect","Model","Monitor_Date","num","per_index","num_total","num_good","num_bad","Cum_total_ratio","Cum_good_ratio" ,"Cum_bad_ratio","AUC_high","AUC_delta","AUC_index","index_flag")]
+  
+    colnames(AUC_cal_table_data)<-c('Aspect', 'Model', 'Monitor_Date',"num", 'per_index', 'Total_Num', 'Normal_Num', 'Default_Num', 'Total_Cum_ratio', 'Normal_Cum_ratio', 'Default_Cum_ratio',"AUC_high","AUC_delta","AUC_index","index_flag")
+  
+    AUC_cal_table_data[,"AUC_high"]<-round(AUC_cal_table_data[,"AUC_high"],digit)
+    AUC_cal_table_data[,"AUC_delta"]<-round(AUC_cal_table_data[,"AUC_delta"],digit)
+    AUC_cal_table_data[,"AUC_index"]<-round(AUC_cal_table_data[,"AUC_index"],digit)
+  
+    sql_updata_queny(datafile= AUC_cal_table_data,TableName= 'AUC_table_Data',model_index=model_type,yymm_index=model_yymm,channel_path=channel_path)
+    
+    
+    
+    cat(paste0("匯出AUC檢定結果......",'\n'))
+    message_list<-c(message_list,"匯出AUC檢定結果......")
+    
+    #Gini_table-1 rating
+    Gini_cal_table<-model_table_rating[2:dim(model_table_rating)[1], c("Aspect","Model","Monitor_Date","num","num_total","num_good","num_bad","Cum_total_ratio","Cum_good_ratio" ,"Cum_bad_ratio","Gini_deltaX","Gini_deltaY","Gini_index","index_flag")]
+    
+    colnames(Gini_cal_table)<-c('Aspect', 'Model', 'Monitor_Date', 'Rank', 'Total_Num', 'Normal_Num', 'Default_Num', 'Total_Cum_ratio', 'Normal_Cum_ratio', 'Default_Cum_ratio',"Gini_deltaX","Gini_deltaY","Gini_index","index_flag")
+    
+    Gini_cal_table[,"Gini_deltaX"]<-round(Gini_cal_table[,"Gini_deltaX"],digit)
+    Gini_cal_table[,"Gini_deltaY"]<-round(Gini_cal_table[,"Gini_deltaY"],digit)
+    Gini_cal_table[,"Gini_index"]<-round(Gini_cal_table[,"Gini_index"],digit)
+    
+    sql_updata_queny(datafile= Gini_cal_table,TableName= 'Gini_table_rank',model_index=model_type,yymm_index=model_yymm,channel_path=channel_path)
+    Sys.sleep(1)
+    
+    #Gini_table-2 Data
+  
+    Gini_cal_table_data<-model_table_Data[2:dim(model_table_Data)[1], c("Aspect","Model","Monitor_Date","num","per_index","num_total","num_good","num_bad","Cum_total_ratio","Cum_good_ratio" ,"Cum_bad_ratio","Gini_deltaX","Gini_deltaY","Gini_index","index_flag")]
+  
+    colnames(Gini_cal_table_data)<-c('Aspect', 'Model', 'Monitor_Date',"num", 'per_index', 'Total_Num', 'Normal_Num', 'Default_Num', 'Total_Cum_ratio', 'Normal_Cum_ratio', 'Default_Cum_ratio',"Gini_deltaX","Gini_deltaY","Gini_index","index_flag")
+  
+    Gini_cal_table_data[,"Gini_deltaX"]<-round(Gini_cal_table_data[,"Gini_deltaX"],digit)
+    Gini_cal_table_data[,"Gini_deltaY"]<-round(Gini_cal_table_data[,"Gini_deltaY"],digit)
+    Gini_cal_table_data[,"Gini_index"]<-round(Gini_cal_table_data[,"Gini_index"],digit)
+  
+    sql_updata_queny(datafile= Gini_cal_table_data,TableName= 'Gini_table_Data',model_index=model_type,yymm_index=model_yymm,channel_path=channel_path)
+    
+    cat(paste0("匯出Gini檢定結果......",'\n'))
+    message_list<-c(message_list,"匯出Gini檢定結果......")
+    
+    #KS_table-1 rating
+    KS_cal_table<-model_table_rating[2:dim(model_table_rating)[1], c("Aspect","Model","Monitor_Date","num","num_total","num_good","num_bad","KS_Cum_total_ratio","KS_Cum_good_ratio","KS_Cum_bad_ratio","KS_index","index_flag")]
+    
+    colnames(KS_cal_table)<-c('Aspect', 'Model', 'Monitor_Date', 'Rank', 'Total_Num', 'Normal_Num', 'Default_Num',"KS_Cum_total_ratio","KS_Cum_good_ratio","KS_Cum_bad_ratio","KS_index","index_flag")
+    
+    KS_cal_table[,"KS_Cum_total_ratio"]<-round(KS_cal_table[,"KS_Cum_total_ratio"],digit)
+    KS_cal_table[,"KS_Cum_good_ratio"]<-round(KS_cal_table[,"KS_Cum_good_ratio"],digit)
+    KS_cal_table[,"KS_Cum_bad_ratio"]<-round(KS_cal_table[,"KS_Cum_bad_ratio"],digit)
+    KS_cal_table[,"KS_index"]<-round(KS_cal_table[,"KS_index"],digit)
+    
+    sql_updata_queny(datafile= KS_cal_table,TableName= 'KS_table_rank',model_index=model_type,yymm_index=model_yymm,channel_path=channel_path)
+    Sys.sleep(1)
+    
+    #KS_table-2 Data
+    KS_cal_table_data<-model_table_Data[2:dim(model_table_Data)[1], c("Aspect","Model","Monitor_Date","num","per_index","num_total","num_good","num_bad","KS_Cum_total_ratio","KS_Cum_good_ratio","KS_Cum_bad_ratio","KS_index","index_flag")]
+  
+    colnames(KS_cal_table_data)<-c('Aspect', 'Model', 'Monitor_Date',"num", 'per_index', 'Total_Num', 'Normal_Num', 'Default_Num',"KS_Cum_total_ratio","KS_Cum_good_ratio","KS_Cum_bad_ratio","KS_index","index_flag")
+  
+    KS_cal_table_data[,"KS_Cum_total_ratio"]<-round(KS_cal_table_data[,"KS_Cum_total_ratio"],digit)
+    KS_cal_table_data[,"KS_Cum_good_ratio"]<-round(KS_cal_table_data[,"KS_Cum_good_ratio"],digit)
+    KS_cal_table_data[,"KS_Cum_bad_ratio"]<-round(KS_cal_table_data[,"KS_Cum_bad_ratio"],digit)
+    KS_cal_table_data[,"KS_index"]<-round(KS_cal_table_data[,"KS_index"],digit)
+    sql_updata_queny(datafile= KS_cal_table_data,TableName= 'KS_table_Data')
+    
+    
+    cat(paste0("匯出KS檢定結果......",'\n'))
+    message_list<-c(message_list,"匯出KS檢定結果......")
+    }
+    
+    #LnOdds
+    if(!is.null(Odds_summary_table)){
+      colnames(Odds_summary_table)<-c("Aspect","Model","Monitor_Date","Rank","Total_Num","Normal_Num","Default_Num","Normal_rate","Default_rate","InOdds_index")
+    
+      Odds_summary_table[,"index_flag"]<-seq(1,dim(Odds_summary_table)[1])
+      sql_updata_queny(datafile= Odds_summary_table,TableName= 'Odds_table',model_index=model_type,yymm_index=model_yymm,channel_path=channel_path)
+      Sys.sleep(1)
+      
+      cat(paste0("匯出好壞比檢定結果......",'\n'))
+      
+      message_list<-c(message_list,"匯出好壞比檢定結果......")
+    }
+    
+    
+    #模型準確性
+    if(!is.null(binomial_summary_table)){
+      binomial_summary_table<-binomial_summary_table[,c("Aspect","Model","Monitor_Date","Rating","Predicted_PD","total","Y1","binomial_line","binomial_test")]
+      colnames(binomial_summary_table)<-c("Aspect","Model","Monitor_Date","Rank","Expected_Default_Probability","Verification_Num","Verification_Def_Num","Binomial_value","Verification_desc")
+      binomial_summary_table[,"index_flag"]<-seq(1,dim(binomial_summary_table)[1])
+      sql_updata_queny(datafile= binomial_summary_table,TableName= 'binomial_table',model_index=model_type,yymm_index=model_yymm,channel_path=channel_path)
+      
+      cat(paste0("匯出模型準確性-Binomial Test......",'\n'))
+      message_list<-c(message_list,"匯出模型準確性-Binomial Test......")
+      
+      Sys.sleep(1)
+    }
+    
+    
+    #PSI
+    if(!is.null(PSI_summary_table)){
+      
+      colnames(PSI_summary_table)<-c("Aspect","Model","Monitor_Date","Rank","Total_Num_building","Total_rate_building","Total_Num_view","Total_rate_view","Difference","ratio","ln_ratio" ,"PSI_index")
+      
+      PSI_summary_table[,"Total_rate_building"]<-round(PSI_summary_table[,"Total_rate_building"],digit)
+      PSI_summary_table[,"Total_rate_view"]<-round(PSI_summary_table[,"Total_rate_view"],digit)
+      PSI_summary_table[,"Difference"]<-round(PSI_summary_table[,"Difference"],digit)
+      PSI_summary_table[,"ratio"]<-round(PSI_summary_table[,"ratio"],digit)
+      PSI_summary_table[,"ln_ratio"]<-round(PSI_summary_table[,"ln_ratio"],digit)
+      PSI_summary_table[,"PSI_index"]<-round(PSI_summary_table[,"PSI_index"],digit)
+      PSI_summary_table[,"index_flag"]<-seq(1,dim(PSI_summary_table)[1])
+      sql_updata_queny(datafile= PSI_summary_table,TableName= 'PSI_table',model_index=model_type,yymm_index=model_yymm,channel_path=channel_path)
+      
+      # write.xlsx(PSI_table,paste0(output_path,"模型驗證_",model_type,".xlsx"),sheetName="模型準確性-PSI",row.names=FALSE, append=TRUE) 
+      
+      cat(paste0("匯出模型準確性-PSI......",'\n'))
+      message_list<-c(message_list,"匯出模型準確性-PSI......")
+    }
+    
+    cat('\n','\n')
+    Sys.sleep(3)
+    message_list<-c(paste0(class_type,"-",model_yymm,"-",model_type),message_list)
+    
+    # return(message_list)
+}  

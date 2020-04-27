@@ -1,0 +1,159 @@
+
+# 匯入檔案 --------------------------------------------------------------------
+
+getwd()
+car <- readRDS(file = "Car_Bcard_data.rds")
+data_verify1 <- car$data_verify
+var_parameter_RightTable <- car$var_parameter_RightTable
+var_parameter_MissTable<- car$var_parameter_MissTable
+var_parameter_BuildTable <- car$var_parameter_BuildTable
+dvar_parameter_PSITable <- car$var_parameter_PSITable
+
+yyyymm_version <- 20200302
+data_parameter_class1 <- read_xlsx("資料正確性因子判斷.xlsx", na = "NULL", col_types = c("text", "text"))
+data_parameter_class2 <- read_xlsx("資料完整性因子判斷.xlsx", na = "NULL", col_types = c("text", "text"))
+data_parameter_class3 <- read_xlsx("資料完整性因子判斷v2.xlsx", na = "NULL", col_types = c("text", "text"))
+data_parameter_class4 <- read_xlsx("資料正確性因子判斷v2.xlsx", na = "NULL", col_types = c("text", "text"))
+
+#資料正確性----------------------------------------------------------------------
+
+var_list <- c("avbal_6m_flag","Residual_period","collection_num","dlnq_6m","alert_cont_3m","Max_dlydt","Max_dlydt92")
+var_dec_table<-data.frame(variable = as.character(),
+                          Min = as.numeric(),
+                          Q1  = as.numeric(),
+                          Median = as.numeric(),
+                          Q3  = as.numeric(),
+                          Max = as.numeric(),
+                          Mean = as.numeric(),
+                          Mode = as.numeric(),
+                          stringsAsFactors = FALSE)
+
+for(i in 1:length(var_list)){
+  data_parameter_class5 <- filter(data_parameter_class4,var_code==var_list[i])
+  data_parameter_class5 <- select(data_parameter_class5,miss_desc)
+  var_sta<- eval(parse(text=paste0("data_verify1 %>% filter(",data_parameter_class5,")")))
+  
+  item<-var_list[i]
+  var_dec_table_01 <-data.frame(variable = as.character(),
+                                Min = as.numeric(),
+                                Q1  = as.numeric(),
+                                Median = as.numeric(),
+                                Q3  = as.numeric(),
+                                Max = as.numeric(),
+                                Mean = as.numeric(),
+                                Mode = as.numeric(),
+                                stringsAsFactors = FALSE)
+  
+  
+  var_dec_table_01[1,"variable"]<-item
+  var_dec_table_01[1,"Min"]<-min(var_sta[,var_list[i]],na.rm = TRUE)
+  var_dec_table_01[1,"Q1"]<-quantile(var_sta[,var_list[i]],0.25,na.rm = TRUE)
+  var_dec_table_01[1,"Median"]<-median(var_sta[,var_list[i]],na.rm = TRUE)
+  var_dec_table_01[1,"Q3"]<-quantile(var_sta[,var_list[i]],0.75,na.rm = TRUE)
+  var_dec_table_01[1,"Max"]<-max(var_sta[,var_list[i]],na.rm = TRUE)
+  var_dec_table_01[1,"Mean"]<-mean(var_sta[,var_list[i]],na.rm = TRUE)
+  
+  Mode_0<-sort(table(var_sta[var_list[i]]),decreasing = T) #依照個數給排序 多到少
+  
+  if(length(Mode_0[Mode_0>1])>1){
+    var_dec_table_01[1,"Mode"]<-as.numeric(names(sort(table(var_sta[,var_list[i]]),decreasing = T)[1])) # 把個數轉換為那個樣本的值
+  }else{
+    var_dec_table_01[1,"Mode"]<-NA
+  }
+  
+  
+  var_dec_table<-rbind(var_dec_table,var_dec_table_01)#將各欄各自取出的放到一個data.frame中
+}
+
+
+write.xlsx(var_dec_table,paste0(getwd(),"/車貸模型_結果輸出",yyyymm_version,".xlsx"),sheetName="資料正確性",row.names=FALSE, append=TRUE)
+
+
+
+# 資料完整性_縱向檢視 -------------------------------------------------------------------
+
+var_list <- c("avbal_6m_flag","Residual_period","collection_num","dlnq_6m","alert_cont_3m","Max_dlydt","Max_dlydt92")
+
+var_NAorBlank_table<-data.frame(name = as.character(),
+                                count_all = as.numeric(),
+                                count_NA = as.numeric(),
+                                NAorBlank_ratio = as.numeric(),
+                                stringsAsFactors = FALSE  )   #建立一個空的FRAME 
+
+for(i in 1:length(var_list)){
+  data_parameter_class <- filter(data_parameter_class3,var_code==var_list[i])
+  data_parameter_class <- select(data_parameter_class,miss_desc)
+  data_verify_NAorBlank_01<- eval(parse(text=paste0("data_verify1 %>% mutate(miss1=case_when(
+  ",data_parameter_class," ~0,
+  TRUE ~ 1                     )
+       )")))
+  
+  
+  data_verify_NAorBlank_01[,"count_NA"] <- colSums(data_verify_NAorBlank_01[c("miss1")])
+  data_verify_NAorBlank_01[,"count_all"]<-dim(data_verify_NAorBlank_01)[1]
+  data_verify_NAorBlank_01[,"NAorBlank_ratio"] <- data_verify_NAorBlank_01[,"count_NA"]/data_verify_NAorBlank_01[,"count_all"]
+  data_verify_NAorBlank_01[,"name"] <- var_list[i]
+  count <- c("name","count_all","count_NA","NAorBlank_ratio")
+  data_verify_NAorBlank_01 <- data_verify_NAorBlank_01[,count]
+  data_verify_NAorBlank_01 <- data_verify_NAorBlank_01[1,]
+  var_NAorBlank_table <- rbind(var_NAorBlank_table,data_verify_NAorBlank_01)}
+
+write.xlsx(var_NAorBlank_table,paste0(getwd(),"/車貸模型_結果輸出",yyyymm_version,".xlsx"),sheetName="資料完整性_縱向檢視",row.names=FALSE, append=TRUE)
+
+
+
+# 資料正確性_橫向檢視 -------------------------------------------------------------------
+
+index_<-seq(1:dim(data_verify1)[1])
+data_verify1[,"index_ID"] <- index_
+data_verify_NAorBlank<-data.frame(index_=data_verify1[,c("index_ID")])
+
+for(i in 1:length(var_list)){
+  item <-var_list[i]
+  data_parameter_class <- filter(data_parameter_class3,var_code==var_list[i])
+  data_parameter_class <- select(data_parameter_class,miss_desc)
+  data_verify_NAorBlank_01<- eval(parse(text=paste0("data_verify1 %>% mutate(miss1=case_when(
+  ",data_parameter_class," ~0,
+  TRUE ~ 1                     )
+  )")))
+  names(data_verify_NAorBlank_01)[length(data_verify_NAorBlank_01)]<-paste0(var_list[i],"NA") 
+  data_verify_NAorBlank<-cbind(data_verify_NAorBlank,data_verify_NAorBlank_01[length(data_verify_NAorBlank_01)])
+}
+
+sample_NAorBlank<- rowSums(data_verify_NAorBlank[,2:dim(data_verify_NAorBlank)[2]])
+sample_table_NAorBlank_0<-as.array(table(sample_NAorBlank))
+
+sample_table_NAorBlank<-data.frame(num_NAorBlank=as.character(names(sample_table_NAorBlank_0)),
+                                   num_count=as.numeric(sample_table_NAorBlank_0),
+                                   stringsAsFactors = FALSE  )
+sample_table_NAorBlank[,"ratio_NAorBlank"]<-round(sample_table_NAorBlank[,"num_count"]/sum(sample_table_NAorBlank[,"num_count"]),4)
+
+write.xlsx(sample_table_NAorBlank,paste0(getwd(),"/車貸模型_結果輸出",yyyymm_version,".xlsx"),sheetName="資料完整性_橫向檢視",row.names=FALSE, append=TRUE)
+
+# 同質性驗證   -----------------------------------------------------------------
+
+grade <- 'Rating_'
+alpha <- 0.01
+model_result_0<- sqldf(paste0("select distinct ",grade," as Rating ,count(*) as total ,sum(case when Y_=0 then 1 else 0 end) as Y0,sum(case when Y_=1 then 1 else 0 end) as Y1 from data_verify1 group by ",grade))
+model_result_0<- sqldf("select a.*, b.Predicted_PD from model_result_0 a left join var_parameter_BuildTable b on a.Rating=b.Risk_Grade ")
+model_result_0[,"binomial_line"]<-qbinom(1-alpha,model_result_0$total,model_result_0$Predicted_PD)
+model_result_0[,"binomial_test"]<-ifelse(model_result_0[,"binomial_line"]>=model_result_0[,"Y1"],"通過","未通過")
+
+write.xlsx(model_result_0,paste0(getwd(),"/車貸模型_結果輸出",yyyymm_version,".xlsx"),sheetName="同質性驗證",row.names=FALSE, append=TRUE)
+
+# 資料穩定性 -------------------------------------------------------------------
+
+data_total <- read_xlsx("建模樣本數量.xlsx", na = "NULL", col_types = c("numeric", "numeric","numeric"))
+model_result_1<- sqldf(paste0("select distinct ",grade," as Rating ,count(*) as total ,sum(case when Y_=0 then 1 else 0 end) as Y0,sum(case when Y_=1 then 1 else 0 end) as Y1 from data_verify1 group by ",grade))
+model_result_1[,"total_rate"] <- round(ifelse(is.finite(model_result_1[,"total"]/sum(model_result_1[,"total"])),model_result_1[,"total"]/sum(model_result_1[,"total"]),0),5)
+model_result_1<- sqldf("select a.*, b.total1,total_rate1 from model_result_1 a left join data_total b on a.Rating=b.Rating ")
+model_result_1[,"Difference"]<-model_result_1[,"total_rate1"]-model_result_1[,"total_rate"]
+model_result_1[,"ratio"] <- ifelse(is.finite(model_result_1[,"total_rate1"]/model_result_1[,"total_rate"]),model_result_1[,"total_rate1"]/model_result_1[,"total_rate"],0)
+model_result_1[,"ln_ratio"]<-log(model_result_1[,"ratio"])
+model_result_1[,"PSI_index"]<-model_result_1[,"Difference"]*model_result_1[,"ln_ratio"]
+PSI_index <- sum(model_result_1[,"PSI_index"])
+total_row <-  dim(model_result_1)[1]+1
+model_result_1[total_row,"PSI_index"]<-PSI_index
+
+
+write.xlsx(model_result_1,paste0(getwd(),"/車貸模型_結果輸出",yyyymm_version,".xlsx"),sheetName="資料穩定性",row.names=FALSE, append=TRUE)

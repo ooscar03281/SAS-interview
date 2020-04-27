@@ -1,0 +1,229 @@
+yyyymm_version = 20200317
+getwd()
+#path <- "D:/評等模型檢控報表_2019Q4/005_俊諺/車貸模型_資料完整性遺漏值R處理邏輯20200317.xlsx"
+code_path<-paste0(File_path,"009_程式碼/") 
+File_path <-paste0(getwd(),"/") 
+#output_path <- paste0(getwd(),"/005_俊諺")
+
+data_verify_miss_yan <-ViewData$data_verify_miss
+data_verify_miss_0yan<-ViewData$data_verify_miss_0
+modelrowdata_Gini_yan<- ViewData$modelrowdata_Gini
+model_psi_yan <- ViewData$modelrowdata_PSI
+
+var_parameter_acar <- var_parameter #遺漏值處理邏輯
+write.xlsx(var_parameter_acar,paste0(getwd(),"/車貸模型_遺漏值處理邏輯",yyyymm_version,".xlsx"),sheetName="1",row.names=FALSE, append=TRUE)
+var_parameter_acarinR <- read_xlsx("車貸模型_資料完整性遺漏值R處理邏輯20200317.xlsx", na = "NULL", col_types = c("text", "text", "text", "text", "text"))
+var_parameter_acarinR <- read_xlsx(path, na = "NULL", col_types = c("text", "text", "text", "text", "text"))
+write.xlsx(data_verify_miss_yan,paste0(getwd(),"/車貸模型_原始檔案匯出16363個",yyyymm_version,".xlsx"),sheetName="1",row.names=FALSE, append=TRUE)
+
+##################################
+#                                #
+# 操作練習                       #
+#                                #               
+##################################
+varlist <- c("v01","v02","v03","v04","v05","v06","v07","v08","v09","v10","v11","v12")
+datavarlist <- select(data_verify_miss_yan,varlist[1])
+datavarlist <- filter(data_verify_miss_yan,v01<=1)
+
+
+##################################
+#                                #
+# 200_資料正確性                 #判斷條件的檔案有誤(為資料完整性的判斷檔案)
+#                                #               
+##################################
+
+varable_dectable <- data.frame(varable= as.character(),
+                               Min = as.numeric(),
+                               Q1 = as.numeric(),
+                               mean = as.numeric(),
+                               Max = as.numeric(),
+                               median = as.numeric(),
+                               Q3 =as.numeric(),
+                               Mode =as.numeric(),
+                               stringsAsFactors = FALSE)
+
+for(i in 1:length(varlist)){
+  datavarlist <- filter(var_parameter_acarinR,var_code==varlist[i])
+  datavarlist1 <- select(datavarlist,miss_desc1)
+  var.sta <- eval(parse(text=paste0("data_verify_miss_yan %>% filter (",datavarlist1,")")))
+  item <- varlist[i]
+  varable_dectable1 <- data.frame(varable= as.character(),
+                                 Min = as.numeric(),
+                                 Q1 = as.numeric(),
+                                 mean = as.numeric(),
+                                 Max = as.numeric(),
+                                 median = as.numeric(),
+                                 Q3 =as.numeric(),
+                                 Mode =as.numeric(),
+                                 stringsAsFactors = FALSE)
+  varable_dectable1[1,"varable"] <- item
+  varable_dectable1[1,"Min"] <- min(var.sta[,varlist[i]],na.rm = TRUE)
+  varable_dectable1[1,"Q1"] <- quantile(var.sta[,varlist[i]],0.25,na.rm = TRUE)
+  varable_dectable1[1,"mean"] <- mean(var.sta[,varlist[i]],na.rm = TRUE)
+  varable_dectable1[1,"Max"] <- max(var.sta[,varlist[i]],na.rm = TRUE)
+  varable_dectable1[1,"median"] <- median(var.sta[,varlist[i]],na.rm = TRUE)
+  varable_dectable1[1,"Q3"] <- quantile(var.sta[,varlist[i]],0.75,na.rm = TRUE)
+  
+  Mode_0<-sort(table(var.sta[varlist[i]]),decreasing = T)
+  if(length(Mode_0[Mode_0>1])>1){
+    varable_dectable1[1,"Mode"]<-as.numeric(names(sort(table(var.sta[,varlist[i]]),decreasing = T)[1]))#NAMES就是取得欄位名字，然後排序後取第一個就是取出最多的那個,把個數轉換為那個樣本的值  }else{
+    }else{varable_dectable1[1,"Mode"]<-NA
+  }
+  varable_dectable <- rbind(varable_dectable,varable_dectable1)
+  }
+write.xlsx(varable_dectable,paste0(getwd(),"/車貸模型_結果輸出",yyyymm_version,".xlsx"),sheetName="資料完整性",row.names=FALSE, append=TRUE)
+
+
+
+
+##################################
+#                                #
+# 200_資料完整性-縱向檢視        #
+#                                #               
+##################################
+
+var_NAorBlank_table<-data.frame(name = as.character(),
+                                count_all = as.numeric(),
+                                count_NA = as.numeric(),
+                                NAorBlank_ratio = as.numeric(),
+                                stringsAsFactors = FALSE  )   #建立一個空的FRAME 
+
+for(i in 1:length(varlist)){
+  var_NAtable <- filter(var_parameter_acarinR,var_code==varlist[i])
+  var_NAtable <- select(var_NAtable,miss_desc1)
+  data_verify_NAorBlank_01<- eval(parse(text=paste0("data_verify_miss_yan %>% mutate(miss1=case_when(
+  ",var_NAtable," ~0,
+  TRUE ~ 1                     )
+       )")))
+  
+  item <- varlist[i]
+  data_verify_NAorBlank_01[,"count_all"] <- dim(data_verify_NAorBlank_01)[1]
+  data_verify_NAorBlank_01[,"count_NA"] <- colSums(data_verify_NAorBlank_01[c("miss1")])
+  data_verify_NAorBlank_01[,"nNAorBlank_ratioame"] <- data_verify_NAorBlank_01[,"count_NA"]/data_verify_NAorBlank_01[,"count_all"]
+  data_verify_NAorBlank_01[,"name"] <- item
+  count <- c("name","count_all","count_NA","nNAorBlank_ratioame")
+  data_verify_NAorBlank_02<- data_verify_NAorBlank_01[,count][1,]
+  var_NAorBlank_table <- rbind(var_NAorBlank_table,data_verify_NAorBlank_02)
+}
+
+##################################
+#                                #
+# 200_資料完整性-橫向檢視        #
+#                                #               
+##################################
+index_ID1 <- seq(1:dim(data_verify_miss_yan)[1])
+data_verify_miss_yan[,"index"] <- index_ID1
+data_verify_NAorBlank <- data.frame(index_ID1=data_verify_miss_yan[,"index"])
+
+for(i in 1:length(varlist)){
+  var_NAtable <- filter(var_parameter_acarinR,var_code==varlist[i])
+  var_NAtable <- select(var_NAtable,miss_desc1)
+  data_verify_NAorBlank_01<- eval(parse(text=paste0("data_verify_miss_yan %>% mutate(miss1=case_when(
+  ",var_NAtable," ~0,
+  TRUE ~ 1                     )
+       )")))
+  
+  item <- varlist[i]
+  names(data_verify_NAorBlank_01)[length(data_verify_NAorBlank_01)]<-paste0(varlist[i],"NA") 
+  data_verify_NAorBlank<-cbind(data_verify_NAorBlank,data_verify_NAorBlank_01[length(data_verify_NAorBlank_01)])
+  }
+
+data_NAorBlank<- rowSums(data_verify_NAorBlank[,2:length(data_verify_NAorBlank)])
+data_NAorBlank<-data.frame("NAnumber"=names(table(a)))
+data_NAorBlank[,"COUNT"] <- table(a)
+data_NAorBlank[,"ratio_NAorBlank"] <- round(data_NAorBlank[,"COUNT"]/sum(data_NAorBlank[,"COUNT"]),4)
+
+
+
+##################################
+#                                #
+# 200_模型排序能力-AUC、GINI、KS #
+#                                #               
+##################################
+
+
+# AUC
+pred <- prediction(modelrowdata_Gini_yan$score_1 ,modelrowdata_Gini_yan$Y_)
+perf <- performance(pred,"tpr","fpr")
+plot(perf,colorize=T)
+AUC <- as.numeric(performance(pred, "auc")@y.values)
+Gini <- AUC*2-1
+
+
+
+
+# AUC
+modelrowdata_Gini_yan[,"score_1"]<-min(modelrowdata_Gini_yan[,"score_"])-modelrowdata_Gini_yan[,"score_"]
+
+    #AUC要先用最小值減掉分數 -----------------------------------------------------------
+
+AUC_summary<-get_AUC(y_pred=(max(modelrowdata_Gini_yan$score_1)-modelrowdata_Gini_yan$score_1),y_real=modelrowdata_Gini_yan$Y_,output_path=output_path)
+plot.roc(as.numeric(modelrowdata_Gini_yan$Y_),(max(modelrowdata_Gini_yan$score_)-modelrowdata_Gini_yan$score_), print.auc=TRUE, auc.polygon=TRUE, partial.auc.focus="blue", max.auc.polygon=TRUE, auc.polygon.col=rgb(153,204,255,maxColorValue = 255),  reuse.auc=FALSE)
+dev.off()
+
+Gini_summary<-get_Gini(datafile=modelrowdata_Gini_yan,cal_type="Rating_",col_names=TRUE)
+KS_index<-KS_Stat(y_pred = (max(modelrowdata_Gini_yan$score_)-modelrowdata_Gini_yan$score_), y_true = modelrowdata_Gini_yan$Y_)/100
+
+
+
+##################################
+#                                #
+# 200_模型排序能力-好壞比        #
+#                                #               
+##################################
+# data_verify_miss_0yan
+# lnodd <- data.frame(riskgrade = as.character(),
+#                     good = as.numeric(),
+#                     bad = as.numeric(),
+#                     total = as.numeric(),
+#                     ln_odd = as.numeric(),
+#                     stringsAsFactors = F)
+# 
+# rating <- c("1","2","3","4","5","6","7","8","9")
+# lnodd[,"riskgrade"] <-rating
+
+dataodd <- sqldf(paste0("select distinct Rating_ as Rating ,count(*) as total ,sum(case when Y_=0 then 1 else 0 end) as Y0,sum(case when Y_=1 then 1 else 0 end) as Y1 from data_verify_miss_0yan group by Rating_"))
+
+
+dataodd[row,"good/bad"] <- dataodd[,"Y0"]/dataodd[,"Y1"] #原始版本
+dataodd[,"good/bad"] <- round(ifelse(is.finite(dataodd[,"Y0"]/dataodd[,"Y1"]),dataodd[,"Y0"]/dataodd[,"Y1"],0),4)
+dataodd[,"ln(odd)"] <- round(ifelse(is.finite(log(dataodd[,"Y0"]/dataodd[,"Y1"])),log(dataodd[,"Y0"]/dataodd[,"Y1"]),0),4)
+dataodd[,"cumY0"] <- cumsum(dataodd$Y0)
+dataodd[,"cumY1"] <- cumsum(dataodd$Y1)
+dataodd[,"cumY0ratio"] <- dataodd$cumY0/sum(dataodd$Y0)
+dataodd[,"cumY1ratio"] <- dataodd$cumY1/sum(dataodd$Y1)
+#要匯入999
+
+#row <- dim(dataodd)[1]+2
+#dataodd[row,"1"] <- "1"
+##################################
+#                                #
+# 400_模型準確性 二項式檢定      #
+#                                #               
+##################################
+#需要有預期機率才能做#
+#
+dataodd[,"binomialline"] <- qbinom()
+
+
+##################################
+#                                #
+# 400_模型穩定性    PSI檢定      #
+#                                #               
+##################################
+#找不到過去建模樣本那個檔案
+
+
+
+
+
+##################################
+#                                #
+# 產出圖表                       #
+#                                #               
+##################################
+line_plot <- ggplot()+geom_line(data = dataodd,aes(x = Rating, y = cumY0ratio, color = 'red'), size = 1.2)+geom_line(data = dataodd,aes(x = Rating, y = cumY1ratio, color = 'blue'), size = 1.2)+labs(x = '評等' , y = '好壞比') +theme(axis.title.x=element_text(family="mono",size=12,hjust=0.5),
+      axis.title.y=element_text(family="mono",size=12,hjust=0.5) ) 
+
+
+

@@ -1,0 +1,76 @@
+#####################
+#
+# 設定package名稱
+#
+#####################
+
+package_list<-c("odbc","shiny","ROCR","RODBC","sqldf","ggplot2","raster","purrr","stats","MLmetrics","lawstat",'kableExtra',"pROC","grDevices","readxl","dplyr","xlsx","rJava","xlsxjars","lubridate")
+                
+                #"xlsx","rJava","xlsxjars","dplyr")
+
+
+
+{
+# 判斷package是否已經下載
+for(item  in package_list){
+  
+  package_dec <- as.character(item)
+  Sys.sleep(1)
+  if(sum(attr(installed.packages(),"dimnames")[[1]]==package_dec)==0){
+    cat(paste0("安裝package...",item,"中.... \n"))
+    if(package_dec=='xlsx'){
+      install.packages('xlsx',repos="http://cran.rstudio.com/")
+      
+    }else{
+    
+     install.packages(package_dec)
+    }
+  }else{
+    cat(paste0("已安裝package..",item,"...\n"))
+    
+  }
+}
+
+
+
+#載入package
+for(item  in package_list){
+  
+  package_dec <- as.character(item)
+  Sys.sleep(1)
+  cat(paste0("載入package-",item,""))
+  #Sys.sleep(1)
+  eval(parse(text=paste0("library(",package_dec,")")))
+  #eval(paste(text=paste0("require((",package_dec,")")))
+  cat(paste0("...載入完成 \n"))
+
+  }
+
+}
+
+
+windowsFonts(myFont=windowsFont("微軟正黑體"))
+options(scipen = 999) 
+
+
+
+GetData_FromServer<-function(Sql_table_table,To_table=NULL,Server_name="local_server"){
+  
+  if(is.null(To_table)){
+    To_table<-Sql_table_table
+  }
+  
+  SQL_Local = odbcConnect(paste0(Server_name))
+  QueryTable <- sqlQuery(SQL_Local,paste0("select * from dbo.", Sql_table_table),stringsAsFactors =FALSE)
+  
+  odbcClose(SQL_Local)
+  eval(parse(text = paste0(To_table,"<-QueryTable")))
+  
+  eval(parse(text = paste0("return(",To_table,")")))
+  
+  
+  
+  
+}
+
+

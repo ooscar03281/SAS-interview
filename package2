@@ -1,0 +1,94 @@
+#####################
+#
+# 設定package名稱
+#
+#####################
+
+package_list<-c("odbc","RODBC","sqldf","ggplot2","raster","stats","MLmetrics","lawstat","pROC","grDevices","readr","readxl","dplyr","xlsx","rJava","xlsxjars","car","knitr","woeBinning","ROCR","kableExtra","lubridate")
+
+
+
+# 判斷package是否已經下載
+for(  i in 1:length(package_list)){
+  item <- package_list[i]
+  package_dec <- as.character(item)
+  #Sys.sleep(1)
+  if(sum(attr(installed.packages(),"dimnames")[[1]]==package_dec)==0){
+    cat(paste0("安裝package...",item,"中.... \n"))
+    if(package_dec=='xlsx'){
+      install.packages('xlsx',repos="http://cran.rstudio.com/")
+      
+    }else{
+    
+     install.packages(package_dec)
+    }
+  }else{
+    cat(paste0("已安裝package..",item,"...\n"))
+    
+  }
+}
+
+
+
+#載入package
+for(  i in 1:length(package_list)){
+  item <- package_list[i]
+  
+  package_dec <- as.character(item)
+  #Sys.sleep(1)
+  cat(paste0("載入package-",item,""))
+  #Sys.sleep(1)
+  eval(parse(text=paste0("library(",package_dec,")")))
+  #eval(paste(text=paste0("require((",package_dec,")")))
+  cat(paste0("...載入完成 \n"))
+
+  }
+
+
+
+
+windowsFonts(myFont=windowsFont("微軟正黑體"))
+options(scipen = 999) 
+
+
+
+
+
+
+
+run_program<-function(){
+  
+  cat(paste0("\n","開始模型驗證.....",'\n'))
+  Sys.sleep(1)
+  #資料載入及清理
+  cat(paste0("進行模型驗證_資料載入及清理.....",'\n'))
+  source(paste0(code_path,"100_資料載入及清理.R"), encoding = "utf-8")
+  Sys.sleep(1)
+  cat(paste0("完成模型驗證_資料載入及清理.....",'\n'))
+  
+  #資料正確性
+  cat(paste0("進行模型驗證_資料驗證(正確性及完整性).....",'\n'))
+  source(paste0(code_path,"200_資料完整性與正確性.R"), encoding = "utf-8")
+  Sys.sleep(1)
+  cat(paste0("完成模型驗證_資料驗證(正確性及完整性).....",'\n'))
+  #模型排序能力
+  cat(paste0("進行模型驗證-模型排序能力.....",'\n'))
+  source(paste0(code_path,"300_模型排序能力.R"), encoding = "utf-8")
+  Sys.sleep(1)
+  cat(paste0("完成模型驗證-模型排序能力.....",'\n'))
+  #模型準確性
+  cat(paste0("進行模型驗證_模型準確性.....",'\n'))
+  source(paste0(code_path,"400_模型準確性及穩定性.R"), encoding = "utf-8")
+  Sys.sleep(1)
+  cat(paste0("完成模型驗證_模型準確性.....",'\n'))
+  #報表輸出
+  cat(paste0("進行監控報表匯出.....",'\n'))
+  source(paste0(code_path,"500_監控報表匯出.R"), encoding = "utf-8")
+  Sys.sleep(1)
+  cat(paste0("完成監控報表匯出.....",'\n'))
+  
+  Sys.sleep(1)
+  cat(paste0("完成模型驗證.....",'\n'))
+}
+
+

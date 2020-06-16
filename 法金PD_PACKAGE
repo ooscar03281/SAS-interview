@@ -1,0 +1,100 @@
+#####################
+#
+# 設定package名稱
+#
+#####################
+
+##################################
+#                                #
+# 999_載入package                #
+#                                #               
+##################################
+
+
+
+package_list<-c("ggplot2", #use ggplot 
+	"dplyr",   # use dense_rank() , 資料處理
+	"tseries", #Time Series Analasis
+	"forecast" ,#use  ma
+	"Hmisc", #敘述統計套件
+	"shiny", #可視化見面套件
+	"DT",    #DT DF轉換、呈現套件
+	"plotly", #作圖用套件
+	"data.table",  #資料處理 同data.frame，資料載入fread
+	"RColorBrewer",#作圖配色套件
+	"tseries",#時間序列分析
+	"forecast",#時間序列分析
+	"caTools",#use sample.split
+	"sqldf",#use sqldf
+	"sensR", #USE findcr   Find The Critical Value Of A One-Tailed Binomial Tes
+	"zoo",# use index
+	"ROCR",#資料正確性驗證
+	#"creditR",#信用風險評分模型套件。算missing ratio
+	"moments",#計算偏態、峰態
+	"corrplot", #計算相關係數
+	"odbc",   #connect SQL
+	"sampling", #抽樣
+	"pROC",    #use AUC
+	"scales"   #用在shiny的作圖
+)
+
+
+
+# 判斷package是否已經下載
+for(item  in package_list){
+	
+	package_dec <- as.character(item)
+	#Sys.sleep(1)
+	if(sum(attr(installed.packages(),"dimnames")[[1]]==package_dec)==0){
+		cat(paste0("安裝package...",item,"中.... \n"))
+		if(package_dec=='xlsx'){
+			install.packages('xlsx',repos="http://cran.rstudio.com/")
+			
+		}else{
+			
+			install.packages(package_dec)
+		}
+	}else{
+		cat(paste0("已安裝package..",item,"...\n"))
+		
+	}
+}
+
+
+
+#載入package
+for(item  in package_list){
+	
+	package_dec <- as.character(item)
+	#Sys.sleep(1)
+	cat(paste0("載入package-",item,""))
+	#Sys.sleep(1)
+	eval(parse(text=paste0("library(",package_dec,")")))
+	#eval(paste(text=paste0("require((",package_dec,")")))
+	cat(paste0("...載入完成 \n"))
+	
+}
+
+
+
+
+#windowsFonts(myFont=windowsFont("微軟正黑體"))
+#options(scipen = 999) 
+
+
+
+# GetData_FromServer<-function(Sql_table_table,To_table=NULL,Server_name="local_server"){
+# 	
+# 	if(is.null(To_table)){
+# 		To_table<-Sql_table_table
+# 	}
+# 	
+# 	SQL_Local = odbcConnect(paste0(Server_name))
+# 	QueryTable <- sqlQuery(SQL_Local,paste0("select * from dbo.", Sql_table_table),stringsAsFactors =FALSE)
+# 	
+# 	odbcClose(SQL_Local)
+# 	eval(parse(text = paste0(To_table,"<-QueryTable")))
+# 	
+# 	eval(parse(text = paste0("return(",To_table,")")))
+# 	
+# }

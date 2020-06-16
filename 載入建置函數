@@ -1,0 +1,2071 @@
+#CH 1 - 資料載入
+
+##################################
+#                                #
+# 100_資料載入                   #
+#                                #               
+##################################
+
+
+# 資料載入分為 SQL server 
+# GetData_FromServer<-function(Sql_table_table,To_table=NULL,Server_name="local_server"){
+#   
+#   if(is.null(To_table)){
+#     To_table<-Sql_table_table
+#   }
+#   
+#   SQL_Local = odbcConnect(paste0(Server_name))
+#   QueryTable <- sqlQuery(SQL_Local,paste0("select * from dbo.", Sql_table_table),stringsAsFactors =FALSE)
+#   
+#   odbcClose(SQL_Local)
+#   eval(parse(text = paste0(To_table,"<-QueryTable")))
+#   
+#   eval(parse(text = paste0("return(",To_table,")")))
+#   
+# }
+
+#DataNAme=paste0(Data_path,Data_list[k])
+
+# 資料載入分為 txt, csv, xlsx, SQL server 
+load_data<-function(DataNAme,FileType=NULL,colType=FALSE,col_types=NULL,sheet = NULL,na = "",sep=","){
+
+  library(readxl)
+  
+  if(is.null(FileType)){
+    
+    list_<-strsplit(DataNAme, "\\.")[[1]]
+    FileType<-list_[length(list_)]
+  
+  }
+  
+  if(tolower(FileType)=="csv"){
+    # csv  
+    Data_ <- read.csv(DataNAme, na = na, header=T, sep=sep)
+    
+  } else if (tolower(FileType)=="xlsx"){
+    #xlsx
+     Data_<- read_excel(DataNAme, na = na, col_types = col_types,sheet=sheet)
+    
+  } else if (tolower(FileType)=="sql"){
+      GetData_FromServer<-function(Sql_table_table,To_table=NULL,Server_name="local_server"){
+        
+        if(is.null(To_table)){
+          To_table<-Sql_table_table
+        }
+        
+        SQL_Local = odbcConnect(paste0(Server_name))
+        QueryTable <- sqlQuery(SQL_Local,paste0("select * from dbo.", Sql_table_table),stringsAsFactors =FALSE)
+        
+        odbcClose(SQL_Local)
+        eval(parse(text = paste0(To_table,"<-QueryTable")))
+        
+        eval(parse(text = paste0("return(",To_table,")")))
+        
+      }
+      
+      Data_<-GetData_FromServer(Sql_table_table=DataNAme,To_table=NULL,Server_name="local_server")
+    
+  }else if(tolower(FileType)=="rda"){    
+    #RDS: 輸出檔
+    Data_<-readRDS(DataNAme)
+      
+  }else{
+    
+    
+  }
+  
+  
+  
+  
+  # txt 
+  
+  
+  
+  # xlsx 
+  
+  
+  result<-as.data.frame(Data_)
+  
+  return(result)
+}
+
+
+##################################
+#                                #
+# 200_資料正確性及完整性         #
+#                                #               
+##################################
+
+# 資料完整性
+# datafile=data_verify_miss
+# var_parameter=var_parameter
+# index_ID=NULL
+# colname_flag=TRUE
+# class_index=class_type
+# model_index=model_type
+# yymm_index=model_yymm
+# sort_col="variable"
+# 
+# sqldf("select count(*) as num ,sum(case when other_dlnq_6m=-996 or other_dlnq_6m>=0 then 0 else 1 end ) as miss from datafile")
+# var_parameter_miss
+
+Data_miss<-function(datafile,var_parameter,index_ID=NULL,colname_flag=TRUE,class_index=class_type,model_index=model_type,yymm_index=model_yymm,sort_col="variable",digit=4){
+  
+  var_list <- as.character(var_parameter$var_code)
+
+  if(is.null(index_ID)){
+    index_<-seq(1:dim(datafile)[1])
+    datafile[,"index_"]<-index_
+    index_ID<-"index_"
+  }
+  
+  #data_miss<-datafile[,c(index_ID,var_list)]
+  data_miss<- sqldf(paste0("select ",index_ID,",",paste0(var_list,collapse = ",")," from datafile"))
+
+  # 3.2 資料完整性
+  data_verify_NAorBlank<-data.frame(index_=data_miss[,c(index_ID)])
+  #判斷因子為空值或空白，並以0和1表示
+  
+  for ( i in 1:length(var_list)){
+   # cat(i)
+    item <-var_list[i]
+    if(is.na(var_parameter[i,5])){
+      data_verify_NAorBlank_0<-sqldf(paste0("select 0 as ",item," from data_miss" ), stringsAsFactors = FALSE)
+    } else {
+      
+      data_verify_NAorBlank_0<-sqldf(paste0("select case when ", var_parameter[i,"miss_desc"] ," then 0 else 1 end as ",item,"_ from data_miss" ), stringsAsFactors = FALSE)
+    }
+    
+    colnames(data_verify_NAorBlank_0)<-item
+    data_verify_NAorBlank<-cbind(data_verify_NAorBlank,data_verify_NAorBlank_0)
+    
+  }  
+  
+
+  var_NAorBlank_table<-data.frame(variable = as.character(),
+                                  count_all = as.numeric(),
+                                  count_NAorBlank = as.numeric(),
+                                  NAorBlank_ratio = as.numeric(),
+                                  stringsAsFactors = FALSE  )
+  
+  #3.2.1 縱向檢視
+  
+  
+  var_NAorBlank_table_0<-as.data.frame(colSums(data_verify_NAorBlank[,var_list]))
+  
+  colnames(var_NAorBlank_table_0)<-"count_NAorBlank"
+  
+  var_NAorBlank_table_0[,"count_all"]<-dim(data_verify_NAorBlank)[1]
+  
+  var_NAorBlank_table_0[,"var"]<-row.names(var_NAorBlank_table_0)
+  
+  var_NAorBlank_table_0<-var_NAorBlank_table_0[,c("var","count_all","count_NAorBlank")]
+  
+  var_NAorBlank_table_0[,"NAorBlank_ratio"]<-var_NAorBlank_table_0[,"count_NAorBlank"]/var_NAorBlank_table_0[,"count_all"]
+  
+  #產出資料完整性的表格 -- 縱向缺失率
+  var_NAorBlank_table<-merge(var_parameter[,c("class","var_code","var_name","model")],var_NAorBlank_table_0,by.x ="var_code" ,by.y="var")
+  var_NAorBlank_table[,"yymm"]<-yymm_index
+  
+  var_NAorBlank_table<-var_NAorBlank_table[,c("class","model","yymm","var_code","var_name","count_all","count_NAorBlank","NAorBlank_ratio")]
+  
+  var_NAorBlank_table[,"NAorBlank_ratio"]<-round(var_NAorBlank_table[,"NAorBlank_ratio"],6)
+  
+  if(sort_col=="var_name"){
+    var_NAorBlank_table<-arrange(var_NAorBlank_table,var_name)
+  } else{
+    var_NAorBlank_table<-arrange(var_NAorBlank_table,var_code)
+  }
+  
+  colnames(var_NAorBlank_table)<-c("Aspect","Model","Monitor_Date","Factor_Code","Factor_Name","Sample_Number","Missing_Value_Number","Missing_Value_ratio")
+  
+  var_NAorBlank_table_view<-var_NAorBlank_table
+  
+  var_NAorBlank_table_view[,"Missing_Value_ratio"]<- paste0(as.character(round(var_NAorBlank_table_view[,"Missing_Value_ratio"]*100,digit)),"%")
+  
+  if(colname_flag==TRUE){
+    colnames(var_NAorBlank_table_view)<-c("構面","模型","監控年月","因子代號","因子名","樣本數","缺失值或空值數","缺失值或空值數比重")
+  }
+  
+  
+  #3.2.2 橫向檢視
+  
+  #缺失值或空值
+  
+  # sample_NAorBlank<-rowSums(data_verify_NAorBlank[,2:dim(data_verify_NAorBlank)[2]])
+  sample_NAorBlank<-rowSums(data_verify_NAorBlank[,var_list])
+  sample_table_NAorBlank_0<-as.array(table(sample_NAorBlank))
+  
+  sample_table_NAorBlank<-data.frame(num_NAorBlank=as.character(names(sample_table_NAorBlank_0)),
+                                     num_count=as.numeric(sample_table_NAorBlank_0),
+                                     stringsAsFactors = FALSE  )
+ 
+  if(dim(sample_table_NAorBlank)[1]<11){
+    sample_table_NAorBlank_0<-data.frame(num_NAorBlank=0:10,stringsAsFactors = F)
+    
+    sample_table_NAorBlank<-sqldf("select a.num_NAorBlank, case when b.num_count is not null then b.num_count else 0 end as num_count from sample_table_NAorBlank_0 a left join sample_table_NAorBlank b on a.num_NAorBlank=b.num_NAorBlank")
+    
+  } else{
+  
+    sample_table_NAorBlank<-sample_table_NAorBlank
+  }
+ 
+  sample_table_NAorBlank[,"cum_ratio"]<-cumsum(sample_table_NAorBlank[,"num_count"])/sum(sample_table_NAorBlank[,"num_count"])
+  row_<-dim(sample_table_NAorBlank)[1]+1
+  sample_table_NAorBlank[row_,"num_NAorBlank"]<-"合計"
+  sample_table_NAorBlank[row_,"num_count"]<-sum(sample_table_NAorBlank[,"num_count"],na.rm = T)
+  
+  
+  sample_table_NAorBlank[,"ratio_NAorBlank"]<-sample_table_NAorBlank[,"num_count"]/sample_table_NAorBlank[row_,"num_count"]
+  sample_table_NAorBlank[,"class"]<-class_index
+  sample_table_NAorBlank[,"model"]<-model_index
+  sample_table_NAorBlank[,"yymm"]<-yymm_index
+  
+  
+  sample_table_NAorBlank<-sample_table_NAorBlank[,c("class","model","yymm","num_NAorBlank","num_count","ratio_NAorBlank","cum_ratio")]
+  
+  
+  
+  
+  sample_table_NAorBlank[,"ratio_NAorBlank"]<-round(sample_table_NAorBlank[,"ratio_NAorBlank"],6)
+  sample_table_NAorBlank[,"cum_ratio"]<-round(sample_table_NAorBlank[,"cum_ratio"],6)
+
+  colnames(sample_table_NAorBlank)<-c("Aspect","Model","Monitor_Date","num_NAorBlank","num_count","ratio_NAorBlank","Cum_num_count")
+  
+  sample_table_NAorBlank_view<-sample_table_NAorBlank
+  
+  sample_table_NAorBlank_view[,"ratio_NAorBlank"]<- paste0(as.character(round(sample_table_NAorBlank_view[,"ratio_NAorBlank"]*100,digit))," %")
+
+  
+  if(colname_flag==TRUE){
+    colnames(sample_table_NAorBlank_view)<-c("構面","模型","監控年月","缺失值或空值數","樣本數","樣本數比重","累積樣本占比")
+  }
+  
+  result<-list(colmiss=var_NAorBlank_table,
+               colmiss_View=var_NAorBlank_table_view,
+               colmiss_View_html=kable(var_NAorBlank_table_view , "html", caption="資料完整性-縱向檢視") %>%  kable_styling(bootstrap_options = c("striped", "hover","condensed"), full_width = F ), 
+               rowmiss=sample_table_NAorBlank, 
+               rowmiss_view=sample_table_NAorBlank_view,
+               rowmiss_view_html=kable(sample_table_NAorBlank_view , "html", caption="資料完整性-橫向檢視") %>%  kable_styling(bootstrap_options = c("striped", "hover","condensed"), full_width = F))
+  
+  return(result)
+  
+}
+
+
+ # datafile = data_verify_miss
+#  # var_parameter = var_parameter_miss
+#  index_ID=NULL
+#  colname_flag=TRUE
+#  class_index=class_type
+#  model_index=model_type
+#  yymm_index=model_yymm
+#
+# datafile = data_verify_miss
+# var_parameter = var_parameter_miss
+# model_index=model_type
+# sort_col="var_name"
+
+# 
+# model_yymm
+
+var_stat_conti<-function(datafile,var_parameter,index_ID=NULL,col_names=TRUE,class_index=class_type,model_index=model_type,yymm_index=model_yymm,sort_col="variable",digit=3){
+  
+  #data_verify_miss<-datafile
+  var_list<-as.character(var_parameter$var_code)
+  
+  if(is.null(index_ID)){
+    index_<-seq(1:dim(datafile)[1])
+    datafile[,"index_"]<-index_
+    index_ID<-"index_"
+  }
+  
+  data_desc<-sqldf(paste0("select ",index_ID,",",paste0(var_list,collapse = ",")," from datafile"))
+  
+  #data_desc<-datafile[,c(index_ID,var_list)]
+  
+  var_dec_table_numeric<-data.frame(variable = as.character(),
+                            Min = as.numeric(),
+                            Q1  = as.numeric(),
+                            Median = as.numeric(),
+                            Q3  = as.numeric(),
+                            Max = as.numeric(),
+                            Mean = as.numeric(),
+                            Mode = as.numeric(),
+                            stringsAsFactors = FALSE)
+  var_dec_table_charactor<-data.frame(variable = as.character(),
+                                    Min = as.character(),
+                                    Q1  = as.character(),
+                                    Median = as.character(),
+                                    Q3  = as.character(),
+                                    Max = as.character(),
+                                    Mean = as.character(),
+                                    Mode = as.character(),
+                                    stringsAsFactors = FALSE)
+  
+  
+  
+  for ( i in 1:length(var_list)){
+   # cat(i)
+    item<-as.character(var_list[i])
+    var_dec_table_0 <-data.frame(variable = as.character(),
+                                 Min = as.numeric(),
+                                 Q1  = as.numeric(),
+                                 Median = as.numeric(),
+                                 Q3  = as.numeric(),
+                                 Max = as.numeric(),
+                                 Mean = as.numeric(),
+                                 Mode = as.numeric(),
+                                 stringsAsFactors = FALSE)
+    
+    
+    var_dec_table_1 <-data.frame(variable = as.character(),
+                                 Min = as.character(),
+                                 Q1  = as.character(),
+                                 Median = as.character(),
+                                 Q3  = as.character(),
+                                 Max = as.character(),
+                                 Mean = as.character(),
+                                 Mode = as.character(),
+                                 stringsAsFactors = FALSE)
+    
+    
+    if(is.na(var_parameter[i,5])){
+      data_var<-sqldf(paste0("select ",item," from data_desc order by ",item))
+      
+    }else{
+      data_var<-sqldf(paste0("select ",item," from data_desc where ",var_parameter[i,5] ," order by ",item))
+    } 
+    
+    
+    if(item == 'WorstDelinq_L3M'){
+      
+      data_var<-sqldf(paste0("select 
+          Case When WorstDelinq_L3M='Z' Then 'A'
+               When WorstDelinq_L3M='0' Then 'B'
+          		 When WorstDelinq_L3M='B' Then 'C'
+          		 When WorstDelinq_L3M='1' Then 'D'
+          		 When WorstDelinq_L3M='2' Then 'E'
+          		 When WorstDelinq_L3M='3' Then 'F'
+          		 When WorstDelinq_L3M='4' Then 'G'
+          		 When WorstDelinq_L3M='5' Then 'H'
+          		 When WorstDelinq_L3M='6' Then 'I'
+          		 When WorstDelinq_L3M='7' Then 'J'
+          		 When WorstDelinq_L3M='8' Then 'K'
+          		 When WorstDelinq_L3M='9' Then 'L' End as WorstDelinq_L3M
+                              from data_var order by ",item))
+
+      
+    }
+    
+    if(item == 'R358_GP'){
+      
+      data_var<-sqldf(paste0("select 
+                             Case When R358_GP='6_近1年未更新資料(XXXX)' Then 'A'
+                             When R358_GP='3_單持本行卡(N)' Then 'B'
+                             When R358_GP='4_靜止戶(I)' Then 'C'
+                             When R358_GP='5_皆無循環(T)' Then 'D'
+                             When R358_GP='2_間斷性循環戶(O)' Then 'E'
+                             When R358_GP='1_循環戶(R)' Then 'F'
+                             else NULL End as R358_GP
+                             from data_var order by ",item,""))
+      
+      
+    }
+    
+    #data_var<-data_verify_miss %>% filter(!is.na(item)) %>% select(item)
+    
+    if(var_parameter[i,"data_type"]=="numeric"){
+      
+      if(is.factor(data_var[,1])==FALSE){
+        
+        var_dec_table_0[1,"variable"]<-item
+        var_dec_table_0[1,"Min"]<-min(data_var[,1],na.rm = TRUE)
+        var_dec_table_0[1,"Q1"]<-quantile(data_var[,1],0.25,na.rm = TRUE)
+        var_dec_table_0[1,"Median"]<-median(data_var[,1],na.rm = TRUE)
+        var_dec_table_0[1,"Q3"]<-quantile(data_var[,1],0.75,na.rm = TRUE)
+        var_dec_table_0[1,"Max"]<-max(data_var[,1],na.rm = TRUE)
+        var_dec_table_0[1,"Mean"]<-mean(data_var[,1],na.rm = TRUE)
+       
+        if(item == 'S1_MIN_DUE_DURTN'){
+          
+          data_var<-sqldf(paste0("select ",item," from data_var where ",item ," != 999 order by ",item))
+          var_dec_table_0[1,"Max"]<-max(data_var[,1],na.rm = TRUE)
+          var_dec_table_0[1,"Mean"]<-mean(data_var[,1],na.rm = TRUE)
+          
+        }
+        
+        
+      } else{
+        var_dec_table_0[1,"variable"]<-item
+        var_dec_table_0[1,"Min"]<-NA
+        var_dec_table_0[1,"Q1"]<-NA
+        var_dec_table_0[1,"Median"]<-NA
+        var_dec_table_0[1,"Q3"]<-NA
+        var_dec_table_0[1,"Max"]<-NA
+        var_dec_table_0[1,"Mean"]<-NA
+       
+        
+      }
+      
+      Mode_0<-sort(table(data_var[,1]),decreasing = T)
+      
+      if(length(Mode_0[Mode_0>1])>=1){ 
+        var_dec_table_0[1,"Mode"]<-as.numeric(names(sort(table(data_var[,1]),decreasing = T)[1]))
+      }else{
+        var_dec_table_0[1,"Mode"]<-NA
+      }
+      
+    } else{
+      
+      Len_data<-dim(data_var)[1]
+      data_var<-as.character(data_var[,1])
+      
+      var_dec_table_1[1,"variable"]<-item
+      var_dec_table_1[1,"Min"]<-data_var[1]
+      var_dec_table_1[1,"Q1"]<-data_var[floor(Len_data*0.25)]
+      var_dec_table_1[1,"Median"]<-data_var[floor(Len_data*0.5)]
+      var_dec_table_1[1,"Q3"]<-data_var[floor(Len_data*0.75)]
+      var_dec_table_1[1,"Max"]<-data_var[floor(Len_data*1)]
+      var_dec_table_1[1,"Mean"]<-"NULL"
+      
+      Mode_0<-sort(table(data_var),decreasing = T)
+      if(length(Mode_0[Mode_0>1])>1){ 
+        var_dec_table_1[1,"Mode"]<-names(Mode_0)[1]
+      }else{
+        var_dec_table_1[1,"Mode"]<-"NULL"
+      }
+    }
+    
+    
+    if(item == 'WorstDelinq_L3M'){
+      
+      change_value <-function(x){
+      y=switch(x,
+      'A'='01_無須繳款(Z)',
+      'B'='02_上期無帳,本期出帳(0)',
+      'C'='03_全額繳清(B)',
+      'D'='04_(1)DPD 1-29',
+      'E'= '05_(2)DPD 30-59',
+      'F'= '06_(3)DPD 60-89',
+      'G'= '07_(4)DPD 90-119',
+      'H'= '08_(5)DPD 120-149',
+      'I'= '09_(6)DPD 150-179',
+      'J'= '10_(7)DPD 180-239',
+      'K'= '11_(8)DPD 240-269',
+      'L'= '12_(9)DPD 270-299',
+      'NULL'
+      )
+        return(y) 
+      }
+      
+      var_dec_table_1[1,"Min"]<-change_value(var_dec_table_1[1,"Min"])
+      var_dec_table_1[1,"Q1"]<-change_value(var_dec_table_1[1,"Q1"])
+      var_dec_table_1[1,"Median"]<-change_value(var_dec_table_1[1,"Median"])
+      var_dec_table_1[1,"Q3"]<-change_value(var_dec_table_1[1,"Q3"])
+      var_dec_table_1[1,"Max"]<-change_value(var_dec_table_1[1,"Max"])
+      var_dec_table_1[1,"Mean"]<-change_value(var_dec_table_1[1,"Mean"])
+      var_dec_table_1[1,"Mode"]<-change_value(var_dec_table_1[1,"Mode"])
+      
+    }
+    
+    
+    if(item == 'R358_GP'){
+      
+      
+      change_value <-function(x){
+        y=switch(x,
+                 'A'='6_近1年未更新資料(XXXX)',
+                 'B'='3_單持本行卡(N)',
+                 'C'='4_靜止戶(I)',
+                 'D'='5_皆無循環(T)',
+                 'E'= '2_間斷性循環戶(O)',
+                 'F'= '1_循環戶(R)',
+                 'NULL'
+        )
+        return(y) 
+      }
+      
+      var_dec_table_1[1,"Min"]<-change_value(var_dec_table_1[1,"Min"])
+      var_dec_table_1[1,"Q1"]<-change_value(var_dec_table_1[1,"Q1"])
+      var_dec_table_1[1,"Median"]<-change_value(var_dec_table_1[1,"Median"])
+      var_dec_table_1[1,"Q3"]<-change_value(var_dec_table_1[1,"Q3"])
+      var_dec_table_1[1,"Max"]<-change_value(var_dec_table_1[1,"Max"])
+      var_dec_table_1[1,"Mean"]<-change_value(var_dec_table_1[1,"Mean"])
+      var_dec_table_1[1,"Mode"]<-change_value(var_dec_table_1[1,"Mode"])
+      
+    }
+    
+    
+    if(item == 'Cash_U_rate'){
+      
+      
+      var_dec_table_0[,c("Min","Q1","Median","Q3","Max","Mean","Mode")]<-var_dec_table_0[,c("Min","Q1","Median","Q3","Max","Mean","Mode")]/100
+     
+      
+    }
+    
+    # var_dec_table_0[1,"variable"]<-item
+    # var_dec_table_0[1,"Min"]<-min(data_var[,1],na.rm = TRUE)
+    # var_dec_table_0[1,"Q1"]<-quantile(data_var[,1],0.25,na.rm = TRUE)
+    # var_dec_table_0[1,"Median"]<-median(data_var[,1],na.rm = TRUE)
+    # var_dec_table_0[1,"Q3"]<-quantile(data_var[,1],0.75,na.rm = TRUE)
+    # var_dec_table_0[1,"Max"]<-max(data_var[,1],na.rm = TRUE)
+    # var_dec_table_0[1,"Mean"]<-mean(data_var[,1],na.rm = TRUE)
+    
+    
+    
+    
+    var_dec_table_numeric<-rbind(var_dec_table_numeric,var_dec_table_0)
+    var_dec_table_charactor<-rbind(var_dec_table_charactor,var_dec_table_1)
+  }
+  
+  train_list<-c( "Min", "Q1", "Median", "Q3", "Max", "Mean", "Mode")
+  for(i in 1:length(train_list)){
+    item<-train_list[i]
+    var_dec_table_numeric[,item]<-as.character(round(as.numeric(var_dec_table_numeric[,item]),digit))
+    
+  }
+  
+  var_dec_table<-rbind(var_dec_table_numeric,var_dec_table_charactor)
+  
+  #var_dec_table[,"var_name"]<-
+  var_dec_table<-merge(var_dec_table,var_parameter[,c("var_code","var_name")],by.x = "variable",by.y="var_code")
+  var_dec_table[,"class"]<-class_index
+  var_dec_table[,"model"]<-model_index
+  var_dec_table[,"yymm"]<-yymm_index
+  
+  
+  # colnames(var_dec_table)[which(colnames(var_dec_table)=="name")]<-"var_name"
+  
+  #產出資料正確性的表格 -- 因子統計量
+  var_stat<-var_dec_table[,c("class","model","yymm","variable","var_name", "Min", "Q1", "Median", "Q3", "Max", "Mean", "Mode")]
+  
+  
+  
+  if(sort_col=="var_name"){
+    var_stat<-arrange(var_stat,var_name)
+  } else{
+    var_stat<-arrange(var_stat,variable)
+  }
+  colnames(var_stat)<-c("Aspect","Model","Monitor_Date","Factor_Code","Factor_Name", "Min", "Q1", "Median", "Q3", "Max", "Mean", "Mode")
+  var_stat_view<-var_stat
+  
+  # train_list<-c( "Min", "Q1", "Median", "Q3", "Max", "Mean", "Mode")
+  # for(i in 1:length(train_list)){
+  #   item<-train_list[i]
+  #   var_stat_view[,item]<-round(as.numeric(var_stat_view[,item]),3)
+  #   
+  # }
+  # 
+  
+  
+  if(col_names==TRUE){
+    colnames(var_stat_view)<-c("構面","模型","監控年月","因子代號","因子名","最小值","第1四分位數","中位數","第3四分位數","最大值",'平均數',"眾數")
+  }
+  
+  result<-list(var_desc=var_stat,var_desc_view=var_stat_view,var_desc_view_html=kable(var_stat_view , "html", caption="資料正確性") %>%  kable_styling(bootstrap_options = c("striped", "hover","condensed"), full_width = F))
+  
+  
+  return(result)
+}
+
+
+# 描述性統計-類別型因子
+var_stat_class<-function(datafile,var_parameter,index_ID=NULL,col_names=TRUE){
+  
+  
+  #data_verify_miss<-datafile
+  var_list<-var_parameter$var
+  
+  if(is_null(index_ID)){
+    index_<-seq(1:dim(datafile)[1])
+    datafile[,"index_"]<-index_
+    index_ID<-"index_"
+  }
+  
+  
+  data_verify_miss<-datafile[,c(index_ID,var_list)]
+  
+  var_dec_table<-NULL
+  
+  
+  for ( i in 1:length(var_list)){
+    data_var<-NULL
+    
+    item<-var_list[i]
+
+    data_var<-sqldf(paste0("select ",item," as class, count(*) as counts from data_verify_miss group by ",item))
+    
+    data_var[,"count_ratio"]<-data_var[,"counts"]/sum(data_var[,"counts"])
+    
+    data_var[,"variable"]<-item
+    
+    data_var[,"Mode"]<-ifelse((data_var[,"count_ratio"]==max(data_var[,"count_ratio"])),"Y","")
+    
+    var_dec_table_0<-data_var[,c("variable","class","counts","count_ratio","Mode")]
+    
+    var_dec_table<-rbind(var_dec_table,var_dec_table_0)
+  }
+  
+  
+  var_dec_table<-merge(var_dec_table,var_parameter[,c("var","name")],by.x = "variable",by.y="var")
+  
+  colnames(var_dec_table)[which(colnames(var_dec_table)=="name")]<-"var_name"
+  
+
+  #產出資料正確性的表格 -- 因子統計量
+  var_stat<-var_dec_table[,c("variable","var_name","class","counts","count_ratio","Mode")]
+  var_stat<-arrange(var_stat,var_name)
+  
+  var_stat_view<-var_stat
+  
+  if(col_names==TRUE){
+    colnames(var_stat_view)<-c("因子代號","因子名","類別","個數","占比","眾數")
+  }
+  
+  result<-list(var_deec=var_stat,var_deec)
+  
+  return(result)
+}
+
+
+
+
+##################################
+#                                #
+# 302_WOE                        #
+#                                #               
+##################################
+
+
+
+generate_woe_code<-function(woe_list){
+  
+  var_list_WOE<-unique(woe_list[,"var"])
+  
+  var_desc_code<-function(Data,item){
+    
+    ##woe_var<-sqldf(paste0("select * from Data_WOE_model_0 where var='",item,"'"))
+    
+    woe_var<-sqldf(paste0("select * from Data where var='",item,"'"))
+    
+    woe_var[,"index_"]<-seq(1,dim(woe_var)[1])
+    
+    
+    for(k in 1:dim(woe_var)[1]){
+      
+      if(k==1){
+        code_head = "case when "
+        #}else if(k==dim(woe_var)[1]){
+        #  code_head = " else "
+      } else{
+        code_head = " when "
+      }
+      
+      if(k==dim(woe_var)[1]){
+        code_end = paste0("else null end as ",item,"_WOE_index")
+      } else{
+        code_end = " "
+      }
+      
+      
+      if(is.na(woe_var[k,"NULL_flag"])){
+        NULL_flag_desc =""
+        NULL_flag_code=""
+      }else if(is.na(woe_var[k,"lower_bound"])==TRUE && is.na(woe_var[k,"upper_bound"])==TRUE){
+        NULL_flag_desc ="NULL值"
+        NULL_flag_code=paste0("",item," is null")
+        
+      }else{
+        NULL_flag_desc ="(含NULL值)"
+        NULL_flag_code=paste0(" or ",item," is null")
+      }
+      
+      
+      if(is.na(woe_var[k,"lower_bound"])==TRUE && is.na(woe_var[k,"upper_bound"])==TRUE){
+        
+        bound_flag_desc=""
+        bound_flag_code=""
+        
+      }else if(is.na(woe_var[k,"lower_bound"])==FALSE && is.na(woe_var[k,"upper_bound"])==TRUE){
+        bound_flag_desc=paste0(" 大於",woe_var[k,"lower_bound"])
+        bound_flag_code=paste0(woe_var[k,"lower_bound"]," < ",item)
+        
+      }else if(is.na(woe_var[k,"lower_bound"])==TRUE && is.na(woe_var[k,"upper_bound"])==FALSE){
+        bound_flag_desc=paste0(" 小於等於 ",woe_var[k,"upper_bound"])
+        bound_flag_code=paste0(item," <=",woe_var[k,"upper_bound"])
+      }else{
+        bound_flag_desc=paste0("大於 ",woe_var[k,"lower_bound"]," 至 ",woe_var[k,"upper_bound"]," 之間")
+        bound_flag_code=paste0(woe_var[k,"lower_bound"]," < ",item," and ",item," <= ",woe_var[k,"upper_bound"])
+      }
+      
+      
+      if(is.na(woe_var[k,"NULL_flag"])==FALSE && (is.na(woe_var[k,"lower_bound"]) && is.na(woe_var[k,"upper_bound"])) ){
+        
+        #var_code = paste0(" ",code_end)
+        var_code = paste0(code_head,bound_flag_code,NULL_flag_code," then ",woe_var[k,"index_"]," ",code_end)
+        
+      }else if(is.na(woe_var[k,"NULL_flag"])==FALSE && (is.na(woe_var[k,"lower_bound"])==FALSE || is.na(woe_var[k,"upper_bound"])==FALSE) ){
+        var_code = paste0(code_head," ( ",bound_flag_code," ) ",NULL_flag_code," then ",woe_var[k,"index_"]," ",code_end)
+        
+      } else {
+        
+        var_code = paste0(code_head,bound_flag_code," then ",woe_var[k,"index_"]," ",code_end)
+      }
+      var_desc=paste0(bound_flag_desc,NULL_flag_desc)
+      
+      woe_var[k,"var_desc"]<-  var_desc 
+      woe_var[k,"var_code"]<-  var_code
+    }
+    
+    return(woe_var)
+  }
+  
+  var_desc_table<-NULL
+  for(i in 1:length(var_list_WOE)){
+    
+    
+    item<-var_list_WOE[i]
+    
+    var_desc_0<-var_desc_code(Data=woe_list,item = var_list_WOE[i])
+    
+    var_desc_table<-rbind(var_desc_table,var_desc_0)
+    
+  }
+  
+  #View(var_desc_table)
+  
+  var_code<-NULL
+  
+  for( j in 1:dim(var_desc_table)[1]){
+    #for( j in 1:7){
+    
+    if(j==dim(var_desc_table)[1]){
+      var_code<-paste(var_code," ",trim(var_desc_table[j,"var_code"]))
+    } else if(var_desc_table[j,"var"]!=var_desc_table[j+1,"var"]){
+      var_code<-paste(var_code," ",trim(var_desc_table[j,"var_code"]),",")
+    }else{
+      
+      var_code<-paste(var_code," ",trim(var_desc_table[j,"var_code"]))
+    }
+  }
+  
+  #var_woe_code<-var_code
+  result<-list(var_woe_table=var_desc_table,var_woe_code=var_code)
+  
+  return(result)
+  
+}  
+
+
+
+#建立各因子劃分組別WOE值以及樣本的分組
+generate_var_woe_table<-function(datafile,woe_code,woe_decs_table){
+  
+  woe_data_0<-sqldf(paste0("select *,",woe_code," from datafile"))
+  
+  factor_list<-unique(woe_decs_table$var)
+  
+  factor_woe_list<-paste0(factor_list,"_WOE_index")
+  
+  
+  woe_data<-NULL
+  
+  for(i in  1:length(factor_woe_list)){
+    
+    woe_data_1<-NULL
+    row_<-NULL
+    woe_data_1<-sqldf(paste0("select ",factor_woe_list[i]," as index_ , count(*) as Total, sum(case when Y_=0 then 1 else 0 end) as Goods, sum(case when Y_=1 then 1 else 0 end) as Bads from woe_data_0 group by ",factor_woe_list[i]))
+    
+    woe_data_1[,"var"]<-factor_list[i]        
+    
+    woe_data_1<-woe_data_1[,c("var","index_","Total","Goods","Bads")]
+    
+    woe_data_1[,"Total_ratio"]<-woe_data_1[,"Total"]/sum(woe_data_1[,"Total"],na.rm = TRUE)
+    
+    woe_data_1[,"Goods_ratio"]<-woe_data_1[,"Goods"]/sum(woe_data_1[,"Goods"],na.rm = TRUE)
+    woe_data_1[,"Bads_ratio"]<-woe_data_1[,"Bads"]/sum(woe_data_1[,"Bads"],na.rm = TRUE)
+    
+    woe_data_1[,"WOE"]<-log(ifelse(is.finite(woe_data_1[,"Goods_ratio"]/ woe_data_1[,"Bads_ratio"]),woe_data_1[,"Goods_ratio"]/ woe_data_1[,"Bads_ratio"],Inf))
+    
+    
+    
+    #row_<-dim(woe_data_1)[1]+1
+    
+    #woe_data_1[,"index_"]<-as.character(woe_data_1[,"index_"])
+    #woe_data_1[,"IV"]<-(woe_data_1[,"Goods_ratio"]-woe_data_1[,"Bads_ratio"])*woe_data_1[,"WOE"]
+    # woe_data_1[row_,"var"]<-factor_list[i]      
+    # woe_data_1[row_,"index_"]<-"合計"
+    # woe_data_1[row_,"Total"]<-sum(woe_data_1[,"Total"],na.rm = T)
+    # woe_data_1[row_,"Goods"]<-sum(woe_data_1[,"Goods"],na.rm = T)
+    # woe_data_1[row_,"Bads"]<-sum(woe_data_1[,"Bads"],na.rm = T)
+    # woe_data_1[row_,"Total_ratio"]<-sum(woe_data_1[,"Total_ratio"],na.rm = T)
+    # woe_data_1[row_,"Goods_ratio"]<-sum(woe_data_1[,"Goods_ratio"],na.rm = T)
+    # woe_data_1[row_,"Bads_ratio"]<-sum(woe_data_1[,"Bads_ratio"],na.rm = T)
+    # woe_data_1[row_,"IV"]<-sum(woe_data_1[,"IV"],na.rm = T)
+    
+    woe_data<-rbind(woe_data,woe_data_1)
+    
+  }
+  
+
+  var_woe_table<-merge(woe_decs_table, woe_data, by = c("var", "index_"), all = T)
+    
+  
+  var_woe_table<-var_woe_table[,c("var","var_name","index_","var_desc","var_code","Total","Goods","Bads","Total_ratio","Goods_ratio","Bads_ratio","WOE")]
+  
+  
+  
+  result<-list(woe_data=woe_data_0,var_woe_table=var_woe_table)
+  
+  return(result)
+  }
+
+
+
+
+# 計算IV值
+cal_IV<-function(datafile){
+  
+  datafile<-sqldf("select *, (Goods_ratio-Bads_ratio)*WOE as IV_index from datafile")
+  
+  datafile_IV<-sqldf("select var,var_name, sum(IV_index) as IV from datafile group by var")
+
+  return(datafile_IV)
+
+}
+
+
+#依因子WOE組別劃分
+
+generate_var_woe<-function(datafile,woe_table,cal_woe=FALSE,woe_code=NULL){
+  
+  if(cal_woe==TRUE){
+  
+    datafile<-sqldf(paste0("select *,",woe_code," from datafile"))
+  }
+  
+  var_list<-unique(woe_table$var)  
+ 
+  for(i in 1:length(var_list)){
+    
+    woe_var_table<-sqldf(paste0("select var,index_,WOE from woe_table where var in ('",var_list[i] ,"')" ))
+      
+    
+    datafile<-sqldf(paste0("select a.*, case when b.index_ is null then null else b.WOE end as ",var_list[i],"_WOE
+            from datafile a 
+           left join woe_var_table b on a.",var_list[i] ,"_WOE_index=b.index_"))
+
+  }
+
+  return(datafile)
+}
+
+
+##################################
+#                                #
+# 501_彙總表                     #
+#                                #               
+##################################
+
+# datafile=model_data
+
+get_Ranksummary<-function(datafile,model_build_datafile = model_build_data,class_index=class_type,model_index=model_type,yymm_index=model_yymm){
+  
+  
+  model_build_datafile<-sqldf("Select * from model_build_datafile")
+  
+  model_build_datafile[,"Rating"]<-as.character(model_build_datafile[,"Risk_Grade"])
+  
+  # 計算各評等的總個數、正常戶個數及違約個數
+  if(model_index=="信用卡A卡"){
+    
+    model_result_01<-sqldf(paste0("select distinct Rating_ as Rating ,sum(Cnt) as total ,sum(case when Y_=0 then Cnt else 0 end) as Y0,sum(case when Y_=1 then Cnt else 0 end) as Y1 from datafile group by Rating_"))
+    
+  }else{
+    
+    model_result_01<- sqldf(paste0("select distinct Rating_ as Rating ,count(*) as total ,sum(case when Y_=0 then 1 else 0 end) as Y0,sum(case when Y_=1 then 1 else 0 end) as Y1 from datafile group by Rating_"))
+    
+  }
+  
+  model_result_01[,"Rating"]<-as.character(as.numeric(model_result_01[,"Rating"]))
+  
+  
+  model_result_0<-sqldf("select a.Rating, a.Baseline_Total, a.Baseline_Good,a.Baseline_Bad,a.Predicted_PD,
+                        case when b.total is null then 0 else b.total end as total,
+                        case when b.Y0 is null then 0 else b.Y0 end as Y0,
+                        case when b.Y1 is null then 0 else b.Y1 end as Y1
+                        
+                        from model_build_datafile a 
+                        
+                        left join model_result_01 b
+                        on a.Rating=b.Rating
+                        ")
+  
+  # model_result_02<-merge(model_build_data[,c("class","model","Rating")], model_result_01, by="Rating",all=TRUE)
+  
+  
+  
+  
+  # 計算各等級的個數占整體比率
+  model_result_0[,"total_ratio"]<-round(ifelse(is.finite(model_result_0[,"total"]/sum(model_result_0[,"total"])),model_result_0[,"total"]/sum(model_result_0[,"total"]),0),4)
+  model_result_0[,"Y0_ratio"]<-round(ifelse(is.finite(model_result_0[,"Y0"]/sum(model_result_0[,"Y0"])),model_result_0[,"Y0"]/sum(model_result_0[,"Y0"]),0),4)
+  model_result_0[,"Y1_ratio"]<-round(ifelse(is.finite(model_result_0[,"Y1"]/sum(model_result_0[,"Y1"])),model_result_0[,"Y1"]/sum(model_result_0[,"Y1"]),0),4)
+  
+  model_result_0[,"Y1_rate"]<-round(ifelse(is.finite(model_result_0[,"Y1"]/model_result_0[,"total"]),model_result_0[,"Y1"]/model_result_0[,"total"],0),4)
+  
+  # 計算各等級的累積個數占比
+  model_result_0[,"total_ratio_cum"]<-round(cumsum(model_result_0[,"total"])/sum(model_result_0[,"total"]),4)
+  model_result_0[,"Y1_ratio_cum"]<-round(cumsum(model_result_0[,"Y1"])/sum(model_result_0[,"Y1"]),4)
+  model_result_0[,"Y0_ratio_cum"]<-round(cumsum(model_result_0[,"Y0"])/sum(model_result_0[,"Y0"]),4)
+  
+  row_end<-dim(model_result_0)[1]+1
+  
+  model_result_0[row_end,"Rating"]<-"合計"
+  model_result_0[row_end,"Baseline_Total"]<-sum(model_result_0[1:(row_end-1),"Baseline_Total"],na.rm = TRUE)
+  model_result_0[row_end,"Baseline_Good"]<-sum(model_result_0[1:(row_end-1),"Baseline_Good"],na.rm = TRUE)
+  model_result_0[row_end,"Baseline_Bad"]<-sum(model_result_0[1:(row_end-1),"Baseline_Bad"],na.rm = TRUE)
+  
+  
+  model_result_0[row_end,"total"]<-sum(model_result_0[,"total"],na.rm = TRUE)
+  model_result_0[row_end,"Y0"]<-sum(model_result_0[,"Y0"],na.rm = TRUE)
+  model_result_0[row_end,"Y1"]<-sum(model_result_0[,"Y1"],na.rm = TRUE)
+  model_result_0[row_end,"total_ratio"]<-1
+  model_result_0[row_end,"Y0_ratio"]<-1
+  model_result_0[row_end,"Y1_ratio"]<-1
+  model_result_0[row_end,"Y1_rate"]<-round(ifelse(is.finite(model_result_0[row_end,"Y1"]/model_result_0[row_end,"total"]),model_result_0[row_end,"Y1"]/model_result_0[row_end,"total"],0),4)
+  
+  model_result_0[,"Aspect"]<-class_index
+  model_result_0[,"Model"]<-model_index
+  model_result_0[,"Monitor_Date"]<-yymm_index
+  model_result_0[,"Predicted_PD"]<-round(model_result_0[,"Predicted_PD"],6)
+  
+  model_result_0<-model_result_0[,c("Aspect", "Model", "Monitor_Date", "Rating","Baseline_Total","Baseline_Good","Baseline_Bad","Predicted_PD", "total", "Y0", "Y1", "total_ratio", "Y0_ratio", "Y1_ratio", "Y1_rate", "total_ratio_cum", "Y1_ratio_cum", "Y0_ratio_cum")]
+  
+  
+  return(model_result_0)
+  
+}
+
+
+##################################
+#                                #
+# 501_model_index                #
+#                                #               
+##################################
+
+ # datafile = modelrowdata_Gini
+ # cal_name = "rating"
+ # seq_num = 100
+# Data000_summary
+cal_model_index <- function(datafile,cal_name="Data",seq_num = 100,class_index=class_type,model_index=model_type,yymm_index=model_yymm){
+  
+  digits = 6
+  
+  if(model_index=="信用卡A卡"){
+    
+    Data000<-datafile
+    # Data000_good<-sqldf("select * from Data000 where Y_ =0")
+    Data000_summary<-sqldf("select sum(Cnt) as total, sum(case when Y_ =0 then Cnt else 0 end ) as good , sum(case when Y_ =1 then Cnt else 0 end ) as bad from Data000")
+    
+  }else{
+    
+    Data000<-datafile[,c("Y_","score_","Rating_")]
+    
+    Data000_good<-sqldf("select * from Data000 where Y_ =0")
+    Data000_summary<-sqldf("select count(*) as total, sum(case when Y_ =0 then 1 else 0 end ) as good , sum(case when Y_ =1 then 1 else 0 end ) as bad from Data000")
+  }
+  
+  cal_table<-NULL
+  cal_table0<-NULL
+  
+  if(cal_name=="Data"){
+    
+    cal_table<-data.frame(
+      num = seq(1,seq_num),
+                          per_index= seq(1,seq_num)/seq_num,
+                          per_value=rep(NA,1,seq_num),
+                          num_total=rep(NA,1,seq_num),
+                          num_good=rep(NA,1,seq_num),
+                          num_bad=rep(NA,1,seq_num),
+                          Cum_total=rep(NA,1,seq_num),
+                          Cum_good=rep(NA,1,seq_num),
+                          Cum_bad=rep(NA,1,seq_num),
+                          Cum_total_ratio=rep(NA,1,seq_num),
+                          Cum_good_ratio=rep(NA,1,seq_num),
+                          Cum_bad_ratio=rep(NA,1,seq_num),
+                          AUC_high=rep(NA,1,seq_num),
+                          AUC_delta=rep(NA,1,seq_num),
+                          AUC_index=rep(NA,1,seq_num),
+                          Gini_deltaX=rep(NA,1,seq_num),
+                          Gini_deltaY=rep(NA,1,seq_num),
+                          Gini_index=rep(NA,1,seq_num)
+    )
+    
+   
+    
+    cal_table[,'per_value']<-quantile(Data000[,"score_"],cal_table[,"per_index"])
+    
+    for(i in 1:dim(cal_table)[1]){
+      
+      cal_table[i,"Cum_total"]<-sum(ifelse(Data000[,"score_"]<=cal_table[i,"per_value"],1,0))
+      cal_table[i,"Cum_good"]<-sum(ifelse(Data000_good[,"score_"]<=cal_table[i,"per_value"],1,0))
+      cal_table[i,"Cum_bad"]<-cal_table[i,"Cum_total"]-cal_table[i,"Cum_good"]
+    }
+    
+  }else{
+    
+    
+    if(model_index=="信用卡A卡"){
+      
+     
+      cal_table00<-sqldf("select distinct Rating_ as num,  sum(Cnt) as total, sum(case when Y_ =0 then Cnt else 0 end ) as good , sum(case when Y_ =1 then Cnt else 0 end ) as bad from Data000 group by Rating_")
+      
+    }else{
+      
+      cal_table00<-sqldf("select distinct Rating_ as num, count(*) as total, sum(case when Y_ =0 then 1 else 0 end ) as good , sum(case when Y_ =1 then 1 else 0 end ) as bad from Data000 group by Rating_")
+    }
+    
+    
+    
+    seq_num<-dim(cal_table00)[1]
+    cal_table<-data.frame(
+      num = seq(1,seq_num),
+      # per_index= seq(1,seq_num)/seq_num,
+      # per_value=rep(NA,1,seq_num),
+      num_total=rep(NA,1,seq_num),
+      num_good=rep(NA,1,seq_num),
+      num_bad=rep(NA,1,seq_num),
+      Cum_total=rep(NA,1,seq_num),
+      Cum_good=rep(NA,1,seq_num),
+      Cum_bad=rep(NA,1,seq_num),
+      Cum_total_ratio=rep(NA,1,seq_num),
+      Cum_good_ratio=rep(NA,1,seq_num),
+      Cum_bad_ratio=rep(NA,1,seq_num),
+      AUC_high=rep(NA,1,seq_num),
+      AUC_delta=rep(NA,1,seq_num),
+      AUC_index=rep(NA,1,seq_num),
+      Gini_deltaX=rep(NA,1,seq_num),
+      Gini_deltaY=rep(NA,1,seq_num),
+      Gini_index=rep(NA,1,seq_num)
+    )
+    cal_table[,"num"]<-as.character(cal_table00[,"num"])
+    cal_table[,"Cum_total"]<-cumsum(cal_table00[,"total"])
+    cal_table[,"Cum_good"]<-cumsum(cal_table00[,"good"])
+    cal_table[,"Cum_bad"]<-cumsum(cal_table00[,"bad"])
+    
+    
+  }
+  
+  
+  
+  
+  for(i in 1:dim(cal_table)[1]){
+    
+    cal_table[i,"Cum_total_ratio"] = round(cal_table[i,"Cum_total"]/Data000_summary[,"total"],digits)
+    cal_table[i,"Cum_good_ratio"] = round(cal_table[i,"Cum_good"]/Data000_summary[,"good"],digits)
+    cal_table[i,"Cum_bad_ratio"] = round(cal_table[i,"Cum_bad"]/Data000_summary[,"bad"],digits)
+    
+    if(i ==1){
+      cal_table[i,"num_total"] = cal_table[i,"Cum_total"]
+      cal_table[i,"num_good"] = cal_table[i,"Cum_good"]
+      cal_table[i,"num_bad"] = cal_table[i,"Cum_bad"]
+      
+      cal_table[i,"AUC_high"] = cal_table[i,"Cum_good_ratio"]
+      cal_table[i,"AUC_delta"] = cal_table[i,"Cum_bad_ratio"]
+      
+      cal_table[i,"Gini_deltaX"] = cal_table[i,"Cum_bad_ratio"]
+      cal_table[i,"Gini_deltaY"] = cal_table[i,"Cum_total_ratio"]
+      
+    }else{
+      cal_table[i,"num_total"] = cal_table[i,"Cum_total"]-cal_table[i-1,"Cum_total"]
+      cal_table[i,"num_good"] = cal_table[i,"Cum_good"]-cal_table[i-1,"Cum_good"]
+      cal_table[i,"num_bad"] = cal_table[i,"Cum_bad"]-cal_table[i-1,"Cum_bad"]
+      
+      cal_table[i,"AUC_high"] = cal_table[i,"Cum_good_ratio"] - cal_table[i-1,"Cum_good_ratio"]
+      cal_table[i,"AUC_delta"] = (cal_table[i,"Cum_bad_ratio"]+cal_table[i-1,"Cum_bad_ratio"])/2
+      
+      cal_table[i,"Gini_deltaX"] = cal_table[i,"Cum_bad_ratio"]+cal_table[i-1,"Cum_bad_ratio"]
+      cal_table[i,"Gini_deltaY"] = cal_table[i,"Cum_total_ratio"]-cal_table[i-1,"Cum_total_ratio"]
+      
+    }
+  }
+  
+  
+  cal_table<-rbind(rep(0,dim(cal_table)[2]),cal_table)
+  cal_table[,"AUC_index"]<-cal_table[,"AUC_high"]*cal_table[,"AUC_delta"]
+  AUC_index = 1-sum(cal_table[,"AUC_index"])
+  
+  cal_table[,"Gini_index"]<-cal_table[,"Gini_deltaX"]*cal_table[,"Gini_deltaY"]
+  Gini_index = 1- sum(cal_table[,"Gini_index"])
+  
+  cal_table[,"num"]<-as.numeric(cal_table[,"num"])
+  cal_table0<-arrange(cal_table,desc(num))
+  
+  cal_table0[,"KS_Cum_total_ratio"]<-round(cumsum(cal_table0[,"num_total"])/Data000_summary[,"total"],digits)
+  cal_table0[,"KS_Cum_good_ratio"]<-round(cumsum(cal_table0[,"num_good"])/Data000_summary[,"good"],digits)
+  cal_table0[,"KS_Cum_bad_ratio"]<-round(cumsum(cal_table0[,"num_bad"])/Data000_summary[,"bad"],digits)
+  
+  
+  
+  cal_table<-sqldf("select a.*, b.KS_Cum_total_ratio,b.KS_Cum_good_ratio,b.KS_Cum_bad_ratio from cal_table a left join cal_table0 b on a.num =b.num")
+  
+  cal_table[,"KS_index"]<-cal_table[,"KS_Cum_bad_ratio"]-cal_table[,"KS_Cum_good_ratio"]
+  KS_index = max(cal_table[,"KS_index"])
+  
+  colnames_list <-colnames(cal_table)
+  
+  
+  row_index <-dim(cal_table)[1]+1
+  cal_table[,'num']<-as.character(cal_table[,'num'])
+  
+  cal_table[row_index,'num']<-"合計"
+  cal_table[row_index,'num_total']<-sum(cal_table[,'num_total'],na.rm = T)
+  cal_table[row_index,'num_good']<-sum(cal_table[,'num_good'],na.rm = T)
+  cal_table[row_index,'num_bad']<-sum(cal_table[,'num_bad'],na.rm = T)
+  cal_table[row_index,'AUC_index']<-AUC_index
+  cal_table[row_index,'Gini_index']<-Gini_index
+  cal_table[row_index,'KS_index']<-KS_index
+  
+  cal_table[,"Aspect"]<-class_index
+  cal_table[,"Model"]<-model_index
+  cal_table[,"Monitor_Date"]<-yymm_index
+  cal_table[,"index_flag"]<-seq(1,row_index)
+  cal_table<-cal_table[,c("Aspect","Model","Monitor_Date",colnames_list,"index_flag")]
+  
+  
+  AUC_desc<-ifelse(AUC_index<0.5,"AUC小於0.5,請確認樣本是否正確",ifelse(AUC_index == 0.5,"模型對違約事件沒有區辨能力",ifelse(AUC_index<0.6,"模型對違約事件的區辨能力差",ifelse(AUC_index<0.7,"模型對違約事件的區辨能力中等",ifelse(AUC_index<0.8,"模型對違約事件的區辨能力佳",ifelse(AUC_index<0.9,"模型對違約事件的區辨能力強","模型對違約事件的區辨能力非常強"))))))
+  
+  KS_desc<-ifelse(KS_index<0,"KS小於0,請確認樣本是否正確",ifelse(KS_index < 0.2,"模型對違約事件無區辨能力,不建議採用",ifelse(KS_index<0.4,"模型對違約事件的區辨能力中等",ifelse(KS_index<0.5,"模型對違約事件的區辨能力佳",ifelse(KS_index<0.6,"模型對違約事件的區辨能力強",ifelse(KS_index<0.75,"模型對違約事件的區辨能力非常強","模型對違約事件的區辨能力極高,但疑似有誤"))))))  
+  
+  Gini_desc<-ifelse(Gini_index<0,"Gini小於0,請確認樣本是否正確",ifelse(Gini_index == 0,"模型對違約事件無區辨能力,不建議採用",ifelse(Gini_index<0.2,"模型對違約事件的區辨能力差",ifelse(Gini_index<0.4,"模型對違約事件的區辨能力中等",ifelse(Gini_index<0.6,"模型對違約事件的區辨能力佳",ifelse(Gini_index<0.8,"模型對違約事件的區辨能力強","模型對違約事件的區辨能力非常強"))))))
+  
+  model_index = list(AUC_value=AUC_index,AUC_desc=AUC_desc,Gini_value=Gini_index,Gini_desc=Gini_desc,KS_value=KS_index,KS_desc=KS_desc,cal_table =cal_table )
+  
+  return(model_index)
+}
+
+# cal_model_index(datafile=modelrowdata_Gini,cal_name="rating",seq_num = 100)
+
+# write.xlsx(cal_table,paste0('C:\\Users\\118477\\Desktop\\',"結果.xlsx"),sheetName="資料正確性",row.names=FALSE, append=FALSE)
+
+
+
+
+
+
+
+##################################
+#                                #
+# 501_AUC                        #
+#                                #               
+##################################
+
+# y_pred=(max(model_data$score_)-model_data$score_)
+# y_real=model_data$Y_
+# output_path=output_path
+get_AUC<-function(y_pred,y_real,output_path){
+  
+  AUC_index<-1-AUC(y_pred = y_pred, y_true = y_real)
+  # AUC_plot<-plot.roc(model_data$Y_,as.numeric(model_data$score_), print.auc=TRUE, auc.polygon=TRUE, 
+  #          partial.auc.focus="blue", max.auc.polygon=TRUE, auc.polygon.col=rgb(153,204,255,maxColorValue = 255),  reuse.auc=FALSE)
+  
+  
+  # png(paste0(output_path,"AUC.png"))
+  #   plot.roc(y_pred,as.numeric(y_real), print.auc=TRUE, auc.polygon=TRUE, partial.auc.focus="blue", max.auc.polygon=TRUE, auc.polygon.col=rgb(153,204,255,maxColorValue = 255),  reuse.auc=FALSE)
+  # dev.off()
+  
+  AUC_desc<-ifelse(AUC_index<0.5,"AUC小於0.5,請確認樣本是否正確",ifelse(AUC_index == 0.5,"模型對違約事件沒有區辨能力",ifelse(AUC_index<0.7,"模型對違約事件的區辨能力差",ifelse(AUC_index<0.8,"模型對違約事件的區辨能力佳",ifelse(AUC_index<0.9,"模型對違約事件的區辨能力強","模型對違約事件的區辨能力非常強")))))
+  
+  result<-list(AUC=AUC_index,AUC_desc=AUC_desc)
+}
+
+
+##################################
+#                                #
+# 503_KS                         #
+#                                #               
+##################################
+
+# datafile=model_data
+
+get_KS<-function(datafile,cal_type="rating",col_names=TRUE,class_index=class_type,model_index=model_type,yymm_index=model_yymm){
+  
+  
+  if(model_index=="信用卡A卡"){
+    
+    model_result_0<-sqldf(paste0("select distinct Rating_ as Rating ,sum(Cnt) as total ,sum(case when Y_=0 then Cnt else 0 end) as Y0,sum(case when Y_=1 then Cnt else 0 end) as Y1 from datafile group by Rating_"))
+    
+  }else{
+  
+  model_result_0<- sqldf(paste0("select distinct Rating_ as Rating ,count(*) as total ,sum(case when Y_=0 then 1 else 0 end) as Y0,sum(case when Y_=1 then 1 else 0 end) as Y1 from datafile group by Rating_"))
+  }
+  
+  model_result_0[,"total_ratio"]<-round(ifelse(is.finite(model_result_0[,"total"]/sum(model_result_0[,"total"])),model_result_0[,"total"]/sum(model_result_0[,"total"]),0),4)
+  model_result_0[,"Y0_ratio"]<-round(ifelse(is.finite(model_result_0[,"Y0"]/sum(model_result_0[,"Y0"])),model_result_0[,"Y0"]/sum(model_result_0[,"Y0"]),0),4)
+  model_result_0[,"Y1_ratio"]<-round(ifelse(is.finite(model_result_0[,"Y1"]/sum(model_result_0[,"Y1"])),model_result_0[,"Y1"]/sum(model_result_0[,"Y1"]),0),4)
+  
+  model_result_0[,"Y1_rate"]<-round(ifelse(is.finite(model_result_0[,"Y1"]/model_result_0[,"total"]),model_result_0[,"Y1"]/model_result_0[,"total"],0),4)
+  
+  K_s_table<-arrange(model_result_0, desc(Rating))
+  
+  for( i in 1:dim(K_s_table)[1]){
+    K_s_table[i,"Y1_ratio_cum"]<-sum(K_s_table[1:i,"Y1"])/sum(K_s_table[,"Y1"])
+    K_s_table[i,"Y0_ratio_cum"]<-sum(K_s_table[1:i,"Y0"])/sum(K_s_table[,"Y0"])
+    K_s_table[i,"total_ratio_cum"]<-sum(K_s_table[1:i,"total"])/sum(K_s_table[,"total"])
+  }
+  
+  # # ##K-s
+  K_s_table[,"KS_index"]<-K_s_table[,"Y1_ratio_cum"]-K_s_table[,"Y0_ratio_cum"]
+  K_s_index_cal <- max( K_s_table[,"KS_index"])
+  
+  total_row<-dim(K_s_table)[1]+1
+  K_s_table[total_row,"KS_index"]<-K_s_index_cal
+  K_s_table[total_row,"total"]<-sum(K_s_table[,"total"],na.rm = T)
+  K_s_table[total_row,"Y0"]<-sum(K_s_table[,"Y0"],na.rm = T)
+  K_s_table[total_row,"Y1"]<-sum(K_s_table[,"Y1"],na.rm = T)
+  K_s_table[total_row,"total_ratio"]<-1
+  K_s_table[total_row,"Y0_ratio"]<-1
+  K_s_table[total_row,"Y1_ratio"]<-1
+  
+  K_s_table[,"Rating"]<-as.character(K_s_table[,"Rating"])
+  K_s_table[total_row,"Rating"]<-"合計"
+  
+  K_s_table[,"class"]<-class_index
+  K_s_table[,"model"]<-model_index
+  K_s_table[,"yymm"]<-yymm_index
+  
+  K_s_table<-K_s_table[,c("class","model","yymm","Rating","total","Y0","Y1","total_ratio","Y0_ratio","Y1_ratio","total_ratio_cum","Y0_ratio_cum","Y1_ratio_cum","KS_index")]
+  K_s_table[,'total_ratio_cum']<-round(K_s_table[,'total_ratio_cum'],6)
+  K_s_table[,'Y0_ratio_cum']<-round(K_s_table[,'Y0_ratio_cum'],6)
+  K_s_table[,'Y1_ratio_cum']<-round(K_s_table[,'Y1_ratio_cum'],6)
+  K_s_table[,'KS_index']<-round(K_s_table[,'KS_index'],6)
+  
+  
+  K_s_table_view<-K_s_table
+  
+  K_s_table_view[,"total_ratio"]<- paste0(as.character(round(K_s_table_view[,"total_ratio"]*100,2)),"%")
+  K_s_table_view[,"Y0_ratio"]<- paste0(as.character(round(K_s_table_view[,"Y0_ratio"]*100,2)),"%")
+  K_s_table_view[,"Y1_ratio"]<- paste0(as.character(round(K_s_table_view[,"Y1_ratio"]*100,2)),"%")
+  K_s_table_view[,"total_ratio_cum"]<- ifelse(is.na(K_s_table_view[,"total_ratio_cum"]),"",paste0(as.character(round(K_s_table_view[,"total_ratio_cum"]*100,2)),"%"))
+  
+  K_s_table_view[,"Y0_ratio_cum"]<- ifelse(is.na(K_s_table_view[,"Y0_ratio_cum"]),"",paste0(as.character(round(K_s_table_view[,"Y0_ratio_cum"]*100,2)),"%"))
+  K_s_table_view[,"Y1_ratio_cum"]<- ifelse(is.na(K_s_table_view[,"Y1_ratio_cum"]),"",paste0(as.character(round(K_s_table_view[,"Y1_ratio_cum"]*100,2)),"%"))
+  K_s_table_view[,"KS_index"]<- paste0(as.character(round(K_s_table_view[,"KS_index"]*100,2)),"%")
+  
+  if(col_names==TRUE){
+    colnames(K_s_table_view)<-c("構面","模型","監控年月","信用評等","總客戶數","正常客戶數","違約客戶數","總客戶數占比","正常客戶數占比","違約客戶數占比","總客戶數累積占比","違約客戶數累積占比","正常客戶數累積占比","組別KS值")
+  }
+  
+  K_s_index_cal_desc<-ifelse(K_s_index_cal<0,"KS小於0,請確認樣本是否正確",ifelse(K_s_index_cal < 0.2,"模型對違約事件無區辨能力,不建議採用",ifelse(K_s_index_cal<0.4,"模型對違約事件的區辨能力中等",ifelse(K_s_index_cal<0.5,"模型對違約事件的區辨能力佳",ifelse(K_s_index_cal<0.6,"模型對違約事件的區辨能力強",ifelse(K_s_index_cal<0.75,"模型對違約事件的區辨能力非常強","模型對違約事件的區辨能力極高,但疑似有誤"))))))  
+  
+  result<-list(KS_value=K_s_index_cal,KS_table=K_s_table,KS_desc=K_s_index_cal_desc,KS_view=K_s_table_view,KS_view_html=kable(K_s_table_view , "html", caption="KS檢定(評等)") %>%  kable_styling(bootstrap_options = c("striped", "hover","condensed"), full_width = F))
+  
+  
+  return(result)
+  
+}
+
+
+##################################
+#                                #
+# 503_GINI                       #
+#                                #               
+##################################
+
+# datafile=model_data
+get_Gini<-function(datafile,cal_type="rating",col_names=TRUE,class_index=class_type,model_index=model_type,yymm_index=model_yymm) {
+  
+  
+  if(model_index=="信用卡A卡"){
+    
+    model_result_0<-sqldf(paste0("select distinct Rating_ as Rating ,sum(Cnt) as total ,sum(case when Y_=0 then Cnt else 0 end) as Y0,sum(case when Y_=1 then Cnt else 0 end) as Y1 from datafile group by Rating_"))
+    
+  }else{
+    
+    model_result_0<- sqldf(paste0("select distinct Rating_ as Rating ,count(*) as total ,sum(case when Y_=0 then 1 else 0 end) as Y0,sum(case when Y_=1 then 1 else 0 end) as Y1 from datafile group by Rating_"))
+  }
+ 
+  
+  model_result_0[,"total_ratio"]<-round(ifelse(is.finite(model_result_0[,"total"]/sum(model_result_0[,"total"])),model_result_0[,"total"]/sum(model_result_0[,"total"]),0),4)
+  model_result_0[,"Y0_ratio"]<-round(ifelse(is.finite(model_result_0[,"Y0"]/sum(model_result_0[,"Y0"])),model_result_0[,"Y0"]/sum(model_result_0[,"Y0"]),0),4)
+  model_result_0[,"Y1_ratio"]<-round(ifelse(is.finite(model_result_0[,"Y1"]/sum(model_result_0[,"Y1"])),model_result_0[,"Y1"]/sum(model_result_0[,"Y1"]),0),4)
+  
+  model_result_0[,"Y1_rate"]<-round(ifelse(is.finite(model_result_0[,"Y1"]/model_result_0[,"total"]),model_result_0[,"Y1"]/model_result_0[,"total"],0),4)
+  
+  
+  Gini_table<-arrange(model_result_0, Rating)
+  
+  for(i in 1:dim(Gini_table)[1]){
+    
+    Gini_table[i,"Bad_Cum"]<-sum(Gini_table[1:i,"Y1"])/sum(Gini_table[,"Y1"])
+    Gini_table[i,"Total_Cum"]<-sum(Gini_table[1:i,"total"])/sum(Gini_table[,"total"])
+    
+  }
+  
+  
+  for(i in 1:dim(Gini_table)[1]){
+    
+    if(i==1){
+      Gini_table[i,"delta_Y"]<-Gini_table[i,"Bad_Cum"]
+      Gini_table[i,"delta_X"]<-Gini_table[i,"Total_Cum"]
+    }else{
+      Gini_table[i,"delta_Y"]<-Gini_table[i,"Bad_Cum"]+Gini_table[i-1,"Bad_Cum"]
+      Gini_table[i,"delta_X"]<-Gini_table[i,"Total_Cum"]-Gini_table[i-1,"Total_Cum"]
+    }
+    
+    Gini_table[i,"delta_Y_X"]<-Gini_table[i,"delta_Y"]*Gini_table[i,"delta_X"]
+    
+  }
+  
+  plot_gini_table<-Gini_table
+  
+  Gini_index_cal<-1-sum(Gini_table[,"delta_Y_X"])
+  
+  
+  total_row<-dim(Gini_table)[1]+1
+  Gini_table[total_row,"delta_Y_X"]<-Gini_index_cal
+  Gini_table[total_row,"total"]<-sum(Gini_table[,"total"],na.rm = T)
+  Gini_table[total_row,"Y0"]<-sum(Gini_table[,"Y0"],na.rm = T)
+  Gini_table[total_row,"Y1"]<-sum(Gini_table[,"Y1"],na.rm = T)
+  Gini_table[total_row,"total_ratio"]<-1
+  Gini_table[total_row,"Y0_ratio"]<-1
+  Gini_table[total_row,"Y1_ratio"]<-1
+  
+  
+  Gini_table[,"Rating"]<-as.character(Gini_table[,"Rating"])
+  Gini_table[total_row,"Rating"]<-"合計"
+  
+  Gini_table[,"class"]<-class_index
+  Gini_table[,"model"]<-model_index
+  Gini_table[,"yymm"]<-yymm_index
+  
+  
+  
+  Gini_table<-Gini_table[,c("class","model","yymm","Rating","total","Y0","Y1","total_ratio","Y0_ratio","Y1_ratio","Total_Cum","Bad_Cum","delta_Y","delta_X","delta_Y_X")]
+  
+  Gini_table[,"Total_Cum"]<-round(Gini_table[,"Total_Cum"],6)
+  Gini_table[,"Bad_Cum"]<-round(Gini_table[,"Bad_Cum"],6)
+  Gini_table[,"delta_Y"]<-round(Gini_table[,"delta_Y"],6)
+  Gini_table[,"delta_X"]<-round(Gini_table[,"delta_X"],6)
+  Gini_table[,"delta_Y_X"]<-round(Gini_table[,"delta_Y_X"],6)
+  
+  
+  
+  Gini_table_View <-Gini_table
+  
+  Gini_table_View[,"total_ratio"]<-ifelse(is.na(Gini_table_View[,"total_ratio"]),"",paste0(as.character(round(Gini_table_View[,"total_ratio"]*100,2))," %"))
+  Gini_table_View[,"Y0_ratio"]<-ifelse(is.na(Gini_table_View[,"Y0_ratio"]),"",paste0(as.character(round(Gini_table_View[,"Y0_ratio"]*100,2))," %"))
+    
+  Gini_table_View[,"Y1_ratio"]<- ifelse(is.na(Gini_table_View[,"Y1_ratio"]),"",paste0(as.character(round(Gini_table_View[,"Y1_ratio"]*100,2))," %"))
+
+  #Gini_table_View[,"Y1_rate"]<- ifelse(is.na(Gini_table_View[,"Y1_rate"]),"",paste0(as.character(round(Gini_table_View[,"Y1_rate"]*100,2))," %"))
+  Gini_table_View[,"Total_Cum"]<- ifelse(is.na(Gini_table_View[,"Total_Cum"]),"",paste0(as.character(round(Gini_table_View[,"Total_Cum"]*100,2))," %"))
+
+    
+  Gini_table_View[,"Bad_Cum"]<-ifelse(is.na(Gini_table_View[,"Bad_Cum"]),"",paste0(as.character(round(Gini_table_View[,"Bad_Cum"]*100,2))," %"))
+
+    
+    
+  Gini_table_View[,"delta_Y"]<-ifelse(is.na(Gini_table_View[,"delta_Y"]),"",paste0(as.character(round(Gini_table_View[,"delta_Y"]*100,2))," %"))
+
+  Gini_table_View[,"delta_X"]<-ifelse(is.na(Gini_table_View[,"delta_X"]),"",paste0(as.character(round(Gini_table_View[,"delta_X"]*100,2))," %"))
+  
+  Gini_table_View[,"delta_Y_X"]<-ifelse(is.na(Gini_table_View[,"delta_Y_X"]),"",paste0(as.character(round(Gini_table_View[,"delta_Y_X"]*100,2))," %"))
+  
+  # Gini_table_View[,"delta_X"]<-paste0(as.character(round(Gini_table_View[,"delta_X"]*100,2))," %")
+  # Gini_table_View[,"delta_Y_X"]<-paste0(as.character(round(Gini_table_View[,"delta_Y_X"]*100,2))," %")
+  
+  
+  if(col_names==TRUE){
+    colnames(Gini_table_View)<-c("構面","模型","監控年月","信用評等","總客戶數","正常客戶數","違約客戶數","總客戶數占比","正常客戶數占比","違約客戶數占比","總客戶數累積占比","違約客戶數累積占比","delta_Y","delta_X","delta_Y*delta_X")
+  }
+  
+  
+  Gini_index_cal_desc<-ifelse(Gini_index_cal<0,"Gini小於0,請確認樣本是否正確",ifelse(Gini_index_cal == 0,"模型對違約事件無區辨能力,不建議採用",ifelse(Gini_index_cal<0.4,"模型對違約事件的區辨能力差",ifelse(Gini_index_cal<0.6,"模型對違約事件的區辨能力佳",ifelse(Gini_index_cal<0.8,"模型對違約事件的區辨能力強","模型對違約事件的區辨能力非常強")))))
+  
+  
+  lorenz_curve_rating<-lorenz.curve_d(plot_data=Gini_table, gini_method="rating")
+  
+  result<-list(Gini_value=Gini_index_cal,Gini_table=Gini_table,Gini_desc=Gini_index_cal_desc,Gini_plot=lorenz_curve_rating$lorenz_curve,Gini_view=Gini_table_View,Gini_view_html=kable(Gini_table_View , "html", caption="Gini檢定(評等)") %>%  kable_styling(bootstrap_options = c("striped", "hover","condensed"), full_width = F))
+  
+  return(result)
+  
+}
+
+
+
+# 羅倫斯曲線
+lorenz.curve_d<-function (plot_data, gini_method="",plot_point=100, main = "Lorenz curve", xlab = "累積客戶占比", ylab = "累積違約客戶佔比") {
+  
+  if(gini_method=="rating"){
+    
+    
+    data_table_0<-sqldf("select * from plot_data where Rating !='合計'")
+    colnames(data_table_0)[which(colnames(data_table_0)=="Bad_Cum")]="point_y"
+    colnames(data_table_0)[which(colnames(data_table_0)=="Total_Cum")]="point_x"
+    gini_index<-1-sum(data_table_0[,"delta_Y_X"])
+    
+    
+    data_table<-data_table_0[c("point_x","point_y")]
+    
+    data_table[dim(data_table)[1],"point_x"]<-1
+    data_table[dim(data_table)[1],"point_y"]<-1
+    
+    data_table<-rbind(c(0,0),data_table)
+    
+    
+  }else{
+    plot_data<-arrange(plot_data,Y_,desc(score_))
+    plot_data_def<-plot_data[which(plot_data$Y_==1),]
+    
+    
+    cut_list_index<-seq(plot_point,0)/plot_point
+    
+    cut_list_total<-quantile(plot_data$score_, probs = cut_list_index)
+    
+    data_table<-data.frame(item=numeric(),point_x=numeric(),point_y=numeric(),stringsAsFactors = FALSE)
+    
+    
+    for(i in 1:length(cut_list_index)){
+      
+      data_table[i,"item"]<-cut_list_index[i]
+      data_table[i,"point_x"]<-length(which(plot_data[,"score_"]>=cut_list_total[i]))/dim(plot_data)[1]
+      data_table[i,"point_y"]<-length(which(plot_data_def[,"score_"]>=cut_list_total[i]))/dim(plot_data_def)[1]
+      
+      
+      
+      
+    }
+    
+    
+    for(i in 1:dim(data_table)[1]){
+      
+      if(i==1){
+        data_table[i,"delta_Y"]<-data_table[i,"point_y"]
+        data_table[i,"delta_X"]<-data_table[i,"point_x"]
+      }else{
+        data_table[i,"delta_Y"]<-data_table[i,"point_y"]+data_table[i-1,"point_y"]
+        data_table[i,"delta_X"]<-data_table[i,"point_x"]-data_table[i-1,"point_x"]
+      }
+      
+      data_table[i,"delta_Y_X"]<-data_table[i,"delta_Y"]*data_table[i,"delta_X"]
+      
+    }
+    
+    Gini_index_cut_point<-1-sum(data_table[,"delta_Y_X"])
+    gini_index<-Gini_index_cut_point
+    
+  } 
+  
+  
+  lorenz_curve<-ggplot()+
+    geom_line(data = data_table,aes(x = as.numeric(point_x), y = point_x , color = 'blue'), size = 1)+
+    #驗證樣本
+    geom_line(data = data_table,aes(x = as.numeric(point_x), y = point_y, color = 'red'), size = 1)+
+    #geom_point(data = data_table,aes(x = as.numeric(point_x), y = point_y, color = 'blue'), size = 2) +
+    labs(x = xlab , y = ylab,title = main) +
+    theme(title=element_text(size=14, face="bold",hjust=0.2,lineheight=0.2),plot.title = element_text(hjust = 0.5),
+          axis.title.x=element_text(family="mono",size=12,hjust=0.5),
+          axis.title.y=element_text(family="mono",size=12,hjust=0.5) ) +    
+    
+    theme(panel.background=element_rect(fill=rgb(255,255,255,maxColorValue = 255),color=rgb(178,178,178,maxColorValue = 255),col = "blue",linetype = "solid"),panel.grid.major = element_line(colour = rgb(178,178,178,maxColorValue = 255),size = 0.2,linetype = "solid"),
+          panel.grid.minor = element_line(colour = rgb(192,192,192,maxColorValue = 255),size = 0.1,linetype = "dashed"))+theme(plot.margin = unit(c(1,1,1,1),"cm"))+ ylim(0,1)+ xlim(0, 1) +  annotate("text", label = paste0("Gini =",round(gini_index, 4)), x = 0.55, y = 0.5, size = 6, colour = rgb(0, 102, 204,maxColorValue = 255),hjust = 0)+
+    scale_color_manual(name = c("blue","red"),
+                       values = c("blue" = rgb(255, 46, 46,maxColorValue = 255),"red" =  rgb(0, 173, 173,maxColorValue = 255)), 
+                       breaks = c( "blue","red"),
+                       labels = c( 'Perfect Equality Line ','監控樣本')) +
+    theme(legend.title=element_blank(),
+          legend.position = 'bottom',
+          legend.text = element_text(family="mono", size = 12) )
+  
+  
+  
+  output<-list(data_table=data_table,lorenz_curve=lorenz_curve)  
+  
+  return(output)
+  
+}
+
+
+##################################
+#                                #
+# 504_odds                       #
+#                                #               
+##################################
+
+
+# datafile=model_data_odds
+# model_build_data=model_build_data
+# 
+# cal_type="rating"
+# col_names=TRUE
+# class_index=class_type
+# model_index=model_type
+# yymm_index=model_yymm
+
+get_Odds<-function(datafile,model_build_data,cal_type="rating",col_names=TRUE,class_index=class_type,model_index=model_type,yymm_index=model_yymm){
+  
+  model_build_data_0<-sqldf("select Risk_Grade from model_build_data")
+  
+  
+  if(model_index=="信用卡A卡"){
+    
+    model_result_0<-sqldf(paste0("select distinct Rating_ as Rating ,sum(Cnt) as total ,sum(case when Y_=0 then Cnt else 0 end) as Y0,sum(case when Y_=1 then Cnt else 0 end) as Y1 from datafile group by Rating_"))
+    
+  }else{
+    
+    model_result_0<- sqldf(paste0("select distinct Rating_ as Rating ,count(*) as total ,sum(case when Y_=0 then 1 else 0 end) as Y0,sum(case when Y_=1 then 1 else 0 end) as Y1 from datafile group by Rating_"))
+  }
+  
+  
+  model_result_0<-sqldf("Select  a.Risk_Grade as Rating,
+          case when b.total is null then 0 else b.total end as total,
+          case when b.Y0 is null then 0 else b.Y0 end as Y0,
+          case when b.Y1 is null then 0 else b.Y1 end as Y1
+        
+        from model_build_data_0 a left join model_result_0 b on a.Risk_Grade=b.Rating")
+  
+ 
+  
+  row_<-dim(model_result_0)[1]+1
+  model_result_0[row_,"Rating"]<-"合計"
+  model_result_0[row_,"total"]<-sum(model_result_0[,"total"],na.rm = T)
+  model_result_0[row_,"Y0"]<-sum(model_result_0[,"Y0"],na.rm = T)
+  model_result_0[row_,"Y1"]<-sum(model_result_0[,"Y1"],na.rm = T)
+  
+  
+  model_result_0[,"total_ratio"]<-round(ifelse(is.finite(model_result_0[,"total"]/model_result_0[row_,"total"]),model_result_0[,"total"]/model_result_0[row_,"total"],0),4)
+  model_result_0[,"Y0_ratio"]<-round(ifelse(is.finite(model_result_0[,"Y0"]/model_result_0[row_,"Y0"]),model_result_0[,"Y0"]/model_result_0[row_,"Y0"],0),4)
+  model_result_0[,"Y1_ratio"]<-round(ifelse(is.finite(model_result_0[,"Y1"]/model_result_0[row_,"Y1"]),model_result_0[,"Y1"]/model_result_0[row_,"Y1"],0),4)
+  
+  model_result_0[,"Y1_rate"]<-round(ifelse(is.finite(model_result_0[,"Y1"]/model_result_0[,"total"]),model_result_0[,"Y1"]/model_result_0[,"total"],0),4)
+  
+  
+  Odds_table<-model_result_0
+  
+  Odds_table[,"ln_Odds"]<-round(ifelse(is.finite(log(Odds_table[,"Y0"]/Odds_table[,"Y1"])),log(Odds_table[,"Y0"]/Odds_table[,"Y1"]),999),4)
+  
+  Odds_table[,"class"]<-class_index
+  Odds_table[,"model"]<-model_index
+  Odds_table[,"yymm"]<-yymm_index
+  
+  Odds_table_plot<-Odds_table[Odds_table[,'Rating']!="合計",]
+  
+  
+  if(length(which(Odds_table[,"ln_Odds"]==999))==dim(Odds_table)[1]){
+    ln_Odds_curve<-NULL
+    
+  } else {
+  odds_max<-ceiling(max(Odds_table[(Odds_table[,"ln_Odds"]!=999),"ln_Odds"]))
+  odds_min<-floor(min(Odds_table[(Odds_table[,"ln_Odds"]!=999),"ln_Odds"]))
+  
+  ln_Odds_curve<-ggplot()+
+    #驗證樣本
+    geom_line(data = Odds_table_plot,aes(x = as.numeric(Rating), y = ln_Odds, color = 'blue'), size = 1)+
+    geom_point(data = Odds_table_plot,aes(x = as.numeric(Rating), y = ln_Odds, color = 'blue'), size = 2) +
+    labs(x = "評等" , y = "好壞比",title = "好壞比(ln(Odds))") +
+    theme(title=element_text(size=14, face="bold",hjust=0.2,lineheight=0.2),plot.title = element_text(hjust = 0.5),
+          axis.title.x=element_text(family="mono",size=12,hjust=0.5),
+          axis.title.y=element_text(family="mono",size=12,hjust=0.5) ) +    
+    theme(panel.background=element_rect(fill=rgb(255,255,255,maxColorValue = 255),color=rgb(178,178,178,maxColorValue = 255),col = "blue",linetype = "solid"),panel.grid.major = element_line(colour = rgb(178,178,178,maxColorValue = 255),size = 0.2,linetype = "solid"),
+          panel.grid.minor = element_line(colour = rgb(192,192,192,maxColorValue = 255),size = 0.1,linetype = "dashed"))+theme(plot.margin = unit(c(1,1,1,1),"cm"))+coord_cartesian(ylim = c(odds_min, odds_max)) +
+    scale_color_manual(name = "blue",
+                       values = c("blue" = 'blue'), 
+                       breaks = c( "blue"),
+                       labels = c( '監控樣本')) +
+    theme(legend.title=element_blank(),
+          legend.position = 'bottom',
+          legend.text = element_text(family="mono", size = 12) )+
+    
+    
+    scale_x_continuous(breaks=seq(1:dim(Odds_table)[1]),
+                       labels=seq(1:dim(Odds_table)[1]))
+  
+  }
+  
+  #Odds_table<-Odds_table[,c("Rating","total","Y0","Y1","ln_Odds")]
+  
+  
+  Odds_table<-Odds_table[,c("class","model","yymm","Rating","total","Y0","Y1","total_ratio", "Y0_ratio", "Y1_ratio", "Y1_rate","ln_Odds")]
+  Odds_table_view<-Odds_table
+  Odds_table_view[,"total_ratio"]<-paste0(as.character(round(Odds_table_view[,"total_ratio"]*100,2))," %")
+  Odds_table_view[,"Y0_ratio"]<-paste0(as.character(round(Odds_table_view[,"Y0_ratio"]*100,2))," %")
+  Odds_table_view[,"Y1_ratio"]<-paste0(as.character(round(Odds_table_view[,"Y1_ratio"]*100,2))," %")
+  Odds_table_view[,"Y1_rate"]<-paste0(as.character(round(Odds_table_view[,"Y1_rate"]*100,2))," %")
+  
+  if(col_names==TRUE){
+    
+    colnames(Odds_table_view)<-c("構面","模型","監控年月","等級","總樣本","正常(好)樣本個數","違約/逾期(壞)樣本個數","總樣本比重","正常(好)樣本個數比重","違約/逾期(壞)樣本個數比重","違約率","ln(Odds)")
+  }
+  
+  
+  
+  
+  result<-list(Odds_table=Odds_table,Odds_plot=ln_Odds_curve,Odds_table_view=Odds_table_view,Odds_table_view_html=kable(Odds_table_view , "html", caption="好壞比 Ln(Odds)") %>%  kable_styling(bootstrap_options = c("striped", "hover","condensed"), full_width = F))
+  
+  
+  return(result)
+  
+}
+
+
+get_Odds_new<-function(datafile,cal_type="rating",col_names=TRUE,class_index=class_type,model_index=model_type,yymm_index=model_yymm){
+  
+  if(cal_type=="summary"){
+    Odds_table<-datafile
+    
+    if(model_index=="信用卡A卡"){
+      
+      Odds_table<-datafile[(2:dim(datafile)[1]),c("Aspect","Model","Monitor_Date","num","num_total","num_good","num_bad")]
+      colnames(Odds_table)<-c("Aspect","Model","Monitor_Date","Rating","total","Y0","Y1")
+      Odds_table[,"Y0_ratio"]<-round(Odds_table[,"Y0"]/Odds_table[dim(Odds_table)[1],"Y0"],6)
+      Odds_table[,"Y1_ratio"]<-round(Odds_table[,"Y1"]/Odds_table[dim(Odds_table)[1],"Y1"],6)
+      
+    }
+    
+  }else{
+    
+    Odds_table<-get_Ranksummary(datafile=model_data)
+  }
+  
+  # summary_table<-get_Ranksummary(datafile=model_data,model_build_datafile=model_build_datafile)
+  
+  
+  # Odds_table<-summary_table
+  
+  Odds_table[,"ln_Odds"]<-round(ifelse(is.finite(log(Odds_table[,"Y0"]/Odds_table[,"Y1"])),log(Odds_table[,"Y0"]/Odds_table[,"Y1"]),999),4)
+  
+  
+  Odds_table_view<-Odds_table[,c("Aspect","Model","Monitor_Date","Rating","total","Y0","Y1","Y0_ratio", "Y1_ratio","ln_Odds")]
+  
+  
+  # Odds_table_view[,"Y0_ratio"]<-paste0(as.character(round(Odds_table_view[,"Y0_ratio"]*100,2)),"%")
+  # Odds_table_view[,"Y1_ratio"]<-paste0(as.character(round(Odds_table_view[,"Y1_ratio"]*100,2)),"%")
+  
+  # if(col_names==TRUE){
+  #   
+  #   colnames(Odds_table_view)<-c("構面","模型","監控年月","信用評等","總樣本數","正常樣本數","違約樣本數","正常樣本數比重","違約樣本數比重","ln(Odds)")
+  # }
+  
+  
+  result<-Odds_table_view
+  
+  
+  # result<-list(Odds_table=Odds_table,Odds_table_view=Odds_table_view,Odds_table_view_html=kable(Odds_table_view , "html", caption="好壞比 Ln(Odds)") %>%  kable_styling(bootstrap_options = c("striped", "hover","condensed"), full_width = F))
+  
+  
+  return(result)
+  
+}
+
+
+##################################
+#                                #
+# 601_Binomial Test              #
+#                                #               
+##################################
+
+# datafile=model_data
+# model_build_data=model_build_data
+# alpha=0.01
+# col_names=TRUE
+# class_index=class_type
+# model_index=model_type
+# yymm_index=model_yymm
+
+get_binomial_test<-function(datafile,model_build_data,alpha=0.05,col_names=TRUE,class_index=class_type,model_index=model_type,yymm_index=model_yymm){
+  
+  if(model_index=="信用卡A卡"){
+    
+    model_result_0<-sqldf(paste0("select distinct Rating_ as Rating ,sum(Cnt) as total ,sum(case when Y_=0 then Cnt else 0 end) as Y0,sum(case when Y_=1 then Cnt else 0 end) as Y1 from datafile group by Rating_"))
+    
+  }else{
+    
+    model_result_0<- sqldf(paste0("select distinct Rating_ as Rating ,count(*) as total ,sum(case when Y_=0 then 1 else 0 end) as Y0,sum(case when Y_=1 then 1 else 0 end) as Y1 from datafile group by Rating_"))
+  }
+  
+  
+  
+  model_result_0[,"total_ratio"]<-round(ifelse(is.finite(model_result_0[,"total"]/sum(model_result_0[,"total"])),model_result_0[,"total"]/sum(model_result_0[,"total"]),0),4)
+  model_result_0[,"Y0_ratio"]<-round(ifelse(is.finite(model_result_0[,"Y0"]/sum(model_result_0[,"Y0"])),model_result_0[,"Y0"]/sum(model_result_0[,"Y0"]),0),4)
+  model_result_0[,"Y1_ratio"]<-round(ifelse(is.finite(model_result_0[,"Y1"]/sum(model_result_0[,"Y1"])),model_result_0[,"Y1"]/sum(model_result_0[,"Y1"]),0),4)
+  
+  model_result_0[,"Y1_rate"]<-round(ifelse(is.finite(model_result_0[,"Y1"]/model_result_0[,"total"]),model_result_0[,"Y1"]/model_result_0[,"total"],0),4)  
+  
+  model_result_0_adj<-model_result_0[,c('Rating','total','Y1','Y1_rate')]
+  model_result_0_adj[,'Rating']<-as.numeric(model_result_0_adj[,'Rating'])
+  
+  
+  binomial_table_0<-merge(model_build_data, model_result_0_adj, by.x="Risk_Grade",by.y='Rating', all.x=TRUE)
+  
+  binomial_table_0[,"total"]<-ifelse(is.na(binomial_table_0[,"total"]),0,binomial_table_0[,"total"])
+  binomial_table_0[,"Y1"]<-ifelse(is.na(binomial_table_0[,"Y1"]),0,binomial_table_0[,"Y1"])
+  binomial_table_0[,"Y1_rate"]<-ifelse(is.na(binomial_table_0[,"Y1_rate"]),0,binomial_table_0[,"Y1_rate"])
+  
+  
+  
+  total_row = dim(binomial_table_0)[1]+1
+  
+  binomial_table_0[total_row,"Baseline_Total"]<-sum(binomial_table_0[,"Baseline_Total"],na.rm = T)
+  binomial_table_0[total_row,"Baseline_Good"]<-sum(binomial_table_0[,"Baseline_Good"],na.rm = T)
+  binomial_table_0[total_row,"Baseline_Bad"]<-sum(binomial_table_0[,"Baseline_Bad"],na.rm = T)
+  binomial_table_0[total_row,"Predicted_PD"]<-binomial_table_0[total_row,"Baseline_Bad"]/binomial_table_0[total_row,"Baseline_Total"]
+  binomial_table_0[total_row,"total"]<-sum(binomial_table_0[,"total"],na.rm = T)
+  binomial_table_0[total_row,"Y1"]<-sum(binomial_table_0[,"Y1"],na.rm = T)
+  binomial_table_0[total_row,"Y1_rate"]<-binomial_table_0[total_row,"Y1"]/binomial_table_0[total_row,"total"]
+  binomial_table_0[,"Risk_Grade"]<-as.character(binomial_table_0[,"Risk_Grade"])
+  binomial_table_0[total_row,"Risk_Grade"]<-"合計"
+  
+  
+  binomial_table_0[,"binomial_line"]<-qbinom(1-alpha,binomial_table_0$total,binomial_table_0$Predicted_PD)
+  binomial_table_0[,"binomial_test"]<-ifelse(binomial_table_0[,"binomial_line"]>=binomial_table_0[,"Y1"],"通過","未通過")
+  
+    
+  binoial_level_flag<-sum(binomial_table_0$binomial_test[1:(total_row-1)]=="未通過")
+  binoial_all_flag<-binomial_table_0$binomial_test[total_row]=="通過"
+  
+  if(binomial_table_0[total_row,"Baseline_Good"]==0 && binomial_table_0[total_row,"Baseline_Bad"]==0){
+    
+    binomial_table_0[total_row,"binomial_line"]=NA
+    binomial_table_0[total_row,"binomial_test"]=""
+  }
+  binomial_table<-binomial_table_0[,c('class','model','Risk_Grade','Baseline_Score','Predicted_PD','total','Y1','Y1_rate','binomial_line','binomial_test')]
+  
+  
+  
+  if( binoial_level_flag==0){
+    
+    
+    Bin_index_desc<-paste0("Binomial Test 於信心水準",(1-alpha)*100,"%下各評等的實際壞帳數皆小於Binomial的臨界值")
+    
+  }else if(binoial_level_flag==1){
+    binoial_no_list<-which(binomial_table_0$binomial_test[1:(total_row-1)]=="未通過")
+    Bin_index_desc_0<-binomial_table_0$Risk_Grade[binoial_no_list]
+    Bin_index_desc<-paste0("Binomial Test 於信心水準",(1-alpha)*100,"%下評等",Bin_index_desc_0,"的實際壞帳數大於Binomial的臨界值")
+    
+  }else{
+    binoial_no_list<-which(binomial_table_0$binomial_test[1:(total_row-1)]=="未通過")
+    
+    
+    Bin_index_desc_0<-paste0(c(paste0(binomial_table_0$Risk_Grade[binoial_no_list[1:(binoial_level_flag-1)]],collapse = ","),binomial_table_0$Risk_Grade[binoial_no_list[binoial_level_flag]]),collapse = "和")
+    Bin_index_desc<-paste0("Binomial Test 於信心水準",(1-alpha)*100,"%下評等",Bin_index_desc_0,"的實際壞帳數皆大於Binomial的臨界值")
+  }
+  
+  binomial_table[,"class"]<-class_index
+  binomial_table[,"model"]<-model_index
+  binomial_table[,"yymm"]<-yymm_index
+  
+  
+  binomial_table<-binomial_table[,c("class","model","yymm","Risk_Grade","Baseline_Score","Predicted_PD","total","Y1","Y1_rate","binomial_line", "binomial_test")]
+  binomial_table[,"Predicted_PD"]<-round(binomial_table[,"Predicted_PD"],6)
+  binomial_table[,"Y1_rate"]<-round(binomial_table[,"Y1_rate"],6)
+  
+  binomial_table_view<-binomial_table
+  binomial_table_view[,"Predicted_PD"]<-paste0(as.character(round(binomial_table_view[,"Predicted_PD"]*100,2))," %")
+  
+  binomial_table_view[,"Y1_rate"]<-paste0(as.character(round(binomial_table_view[,"Y1_rate"]*100,2))," %")
+  binomial_table_view[,"Baseline_Score"]<-ifelse(is.na(binomial_table_view[,"Baseline_Score"]),"",binomial_table_view[,"Baseline_Score"])
+  binomial_table_view[,"binomial_line"]<-ifelse(is.na(binomial_table_view[,"binomial_line"]),"",binomial_table_view[,"binomial_line"])
+  
+  if(col_names==TRUE){
+    colnames(binomial_table_view)<-c("類型","模型","監控年月","評等","分數區間","預期違約機率","驗證總樣本數","驗證違約樣本數","違約數占比","Binomial test之臨界值","檢測結果")
+  }
+  
+  
+  result<-list(Binomial_table=binomial_table,Binomial_desc=Bin_index_desc,binomial_table_view=binomial_table_view,binomial_table_view_html=kable(binomial_table_view , "html", caption="Binomial 檢定") %>%  kable_styling(bootstrap_options = c("striped", "hover","condensed"), full_width = F))
+  
+  return(result)
+}
+
+
+
+get_binomial_test_new<-function(datafile,cal_type="rating",alpha=0.05,col_names=TRUE,class_index=class_type,model_index=model_type,yymm_index=model_yymm){
+  
+  
+  if(cal_type=="summary"){
+    binomial_table_0<-datafile
+  }else{
+    
+    binomial_table_0<-get_Ranksummary(datafile=model_data)
+  }
+  
+  
+  # summary_table<-get_Ranksummary(datafile=model_data,model_build_datafile=model_build_datafile)
+  
+  
+  # binomial_table_0<-summary_table
+  
+  binomial_table_0[,"binomial_line"]<-qbinom(1-alpha,binomial_table_0$total,binomial_table_0$Predicted_PD)
+  binomial_table_0[,"binomial_test"]<-ifelse(!is.finite(binomial_table_0[,"binomial_line"]),"",ifelse(binomial_table_0[,"binomial_line"]>=binomial_table_0[,"Y1"],"通過","未通過"))
+  
+  
+  
+  binoial_level_flag<-sum(binomial_table_0$binomial_test[1:(dim(binomial_table_0)[1]-1)]=="未通過")
+  # binoial_all_flag<-binomial_table_0$binomial_test[total_row]=="通過"
+  
+  # if(binomial_table_0[total_row,"Baseline_Good"]==0 && binomial_table_0[total_row,"Baseline_Bad"]==0){
+  #   
+  #   binomial_table_0[total_row,"binomial_line"]=NA
+  #   binomial_table_0[total_row,"binomial_test"]=""
+  # }
+  binomial_table<-binomial_table_0[,c('Aspect','Model',"Monitor_Date",'Rating','Baseline_Total','Predicted_PD','total','Y1','binomial_line','binomial_test')]
+  
+  total_row<-dim(binomial_table_0)[1]
+  
+  binomial_table[total_row,"Baseline_Total"]<-sum(binomial_table[,"Baseline_Total"],na.rm = TRUE)
+  
+  
+  if( binoial_level_flag==0){
+    
+    
+    Bin_index_desc<-paste0("Binomial Test 於信心水準",(1-alpha)*100,"%下各評等的實際壞帳數皆小於Binomial的臨界值")
+    
+  }else if(binoial_level_flag==1){
+    
+    binoial_no_list<-which(binomial_table_0$binomial_test[1:(total_row-1)]=="未通過")
+    Bin_index_desc_0<-binomial_table_0$Rating[binoial_no_list]
+    Bin_index_desc<-paste0("Binomial Test 於信心水準",(1-alpha)*100,"%下，第 ",Bin_index_desc_0," 評等的實際壞帳數大於Binomial的臨界值")
+    
+  }else{
+    binoial_no_list<-which(binomial_table_0$binomial_test[1:(total_row-1)]=="未通過")
+    
+    Bin_index_desc_0<-paste0(c(paste0(binomial_table_0$Rating[binoial_no_list[1:(binoial_level_flag-1)]],collapse = ","),binomial_table_0$Rating[binoial_no_list[binoial_level_flag]]),collapse = "和")
+    Bin_index_desc<-paste0("Binomial Test 於信心水準",(1-alpha)*100,"%下，第 ",Bin_index_desc_0,"評等的實際壞帳數皆大於Binomial的臨界值")
+  }
+  
+  
+  
+  binomial_table_view<-binomial_table[,c("Aspect","Model","Monitor_Date","Rating","Baseline_Total","Predicted_PD","total","Y1","binomial_line", "binomial_test")]
+  
+  
+  
+  binomial_table_view[,"binomial_line"]<-ifelse(is.na(binomial_table_view[,"binomial_line"]),"",binomial_table_view[,"binomial_line"])
+  
+  # if(col_names==TRUE){
+  #   colnames(binomial_table_view)<-c("構面","模型","監控年月","信用評等","建模總樣本數","預期違約機率","監控總樣本數","監控違約樣本數","Binomial test之臨界值","檢測結果")
+  # }
+  
+  
+  # result<-list(Binomial_table=binomial_table,Binomial_desc=Bin_index_desc,binomial_table_view=binomial_table_view,binomial_table_view_html=kable(binomial_table_view , "html", caption="Binomial 檢定") %>%  kable_styling(bootstrap_options = c("striped", "hover","condensed"), full_width = F))
+  
+  
+  result<-list(Binomial_table=binomial_table_view,Binomial_desc=Bin_index_desc,Binomail_outpoint = binoial_level_flag)
+  
+  return(result)
+}
+
+##################################
+#                                #
+# 602_PSI                        #
+#                                #               
+##################################
+
+# 
+# datafile=model_data_PSI
+# model_build_data=model_build_data_PSI
+# col_names=TRUE
+# class_index=class_type
+# model_index=model_type
+# yymm_index=model_yymm
+
+get_PSI<-function(datafile,model_build_data,col_names=TRUE,class_index=class_type,model_index=model_type,yymm_index=model_yymm){
+  
+  model_result_0<- sqldf(paste0("select distinct Rating_ as Rating ,count(*) as total from datafile group by Rating_"))
+  
+  model_result_0[,"total_ratio"]<-round(ifelse(is.finite(model_result_0[,"total"]/sum(model_result_0[,"total"])),model_result_0[,"total"]/sum(model_result_0[,"total"]),0),4)
+  #model_result_0[,"Y0_ratio"]<-round(ifelse(is.finite(model_result_0[,"Y0"]/sum(model_result_0[,"Y0"])),model_result_0[,"Y0"]/sum(model_result_0[,"Y0"]),0),4)
+  #model_result_0[,"Y1_ratio"]<-round(ifelse(is.finite(model_result_0[,"Y1"]/sum(model_result_0[,"Y1"])),model_result_0[,"Y1"]/sum(model_result_0[,"Y1"]),0),4)
+  
+  #model_result_0[,"Y1_rate"]<-round(ifelse(is.finite(model_result_0[,"Y1"]/model_result_0[,"total"]),model_result_0[,"Y1"]/model_result_0[,"total"],0),4)  
+  
+  model_result_0_adj<-model_result_0[,c('Rating','total')]
+  model_result_0_adj[,'Rating']<-as.numeric(model_result_0_adj[,'Rating'])
+  
+  
+  PSI_table_0<-merge(model_build_data,model_result_0_adj[,c('Rating','total')], by.x="Risk_Grade",by.y='Rating', all.x=TRUE)
+  
+  PSI_table_0[,"total"]<-ifelse(is.na(PSI_table_0[,"total"]),0,PSI_table_0[,"total"])
+  
+  PSI_table_0[,"total_rate"]<-PSI_table_0[,"total"]/sum(PSI_table_0[,"total"])
+  PSI_table_0[,"Baseline_Total_rate"]<-PSI_table_0[,"Baseline_Total"]/sum(PSI_table_0[,"Baseline_Total"])
+  PSI_table_0[,"Difference"]<-PSI_table_0[,"Baseline_Total_rate"]-PSI_table_0[,"total_rate"]
+  PSI_table_0[,"ratio"]<- ifelse(is.finite(PSI_table_0[,"Baseline_Total_rate"]/PSI_table_0[,"total_rate"]),PSI_table_0[,"Baseline_Total_rate"]/PSI_table_0[,"total_rate"],NA)
+  PSI_table_0[,"ln_ratio"]<-log(PSI_table_0[,"ratio"])
+  PSI_table_0[,"PSI_index"]<-PSI_table_0[,"Difference"]*PSI_table_0[,"ln_ratio"]
+  
+  PSI_index <- sum(PSI_table_0[is.finite(PSI_table_0[,"PSI_index"]),"PSI_index"],na.rm = T)
+  total_row = dim(PSI_table_0)[1]+1
+  
+  PSI_table_0[total_row,"PSI_index"]<-PSI_index
+  
+  PSI_table<-PSI_table_0[,c("class","model","Risk_Grade","Baseline_Total","Baseline_Total_rate","total","total_rate","PSI_index")]
+  
+  
+  
+  PSI_table[total_row,"Baseline_Total"]<-sum(PSI_table[,"Baseline_Total"],na.rm = T)
+  
+  
+  PSI_table[total_row,"total"]<-sum(PSI_table[,"total"],na.rm = T)
+  PSI_table[total_row,"total_rate"]<-sum(PSI_table[,"total_rate"],na.rm = T)
+  PSI_table[total_row,"Baseline_Total_rate"]<-sum(PSI_table[,"Baseline_Total_rate"],na.rm = T)
+  PSI_table[,"Risk_Grade"]<-as.character(PSI_table[,"Risk_Grade"])
+  PSI_table[total_row,"Risk_Grade"]<-"合計"
+  
+  
+  PSI_table[,"class"]<-class_index
+  PSI_table[,"model"]<-model_index
+  PSI_table[,"yymm"]<-yymm_index
+  
+  PSI_table<-PSI_table[,c("class","model","yymm","Risk_Grade","Baseline_Total","Baseline_Total_rate","total","total_rate","PSI_index")]
+  
+  PSI_table[,"Baseline_Total_rate"]<-round(PSI_table[,"Baseline_Total_rate"],6)
+  PSI_table[,"total_rate"]<-round(PSI_table[,"total_rate"],6)
+  PSI_table[,"PSI_index"]<-round(PSI_table[,"PSI_index"],6)
+  
+  PSI_table_view<-PSI_table
+  PSI_table_view[,"Baseline_Total_rate"]<-paste0(as.character(round(PSI_table_view[,"Baseline_Total_rate"]*100,2))," %")
+  PSI_table_view[,"total_rate"]<-paste0(as.character(round(PSI_table_view[,"total_rate"]*100,2))," %")
+  PSI_table_view[,"PSI_index"]<-paste0(as.character(round(PSI_table_view[,"PSI_index"]*100,2))," %")
+  
+  PSI_table_view[total_row,"PSI_index"]<-paste0("PSI = ",PSI_table_view[total_row,"PSI_index"])
+  if(col_names==TRUE){
+    colnames(PSI_table_view)<-c("類型","模型","監控年月","評等","總客戶數(建置模型)","總客戶數占比(建置模型)","總客戶數(監控)","總客戶數占比(監控)","PSI_index")
+  }
+  
+  PSI_table_plot<-PSI_table[PSI_table[,"Risk_Grade"]!="合計",]
+  
+  PSI_plot<- ggplot()+
+    #建模樣本
+    geom_line(data = PSI_table_plot,aes(x = as.numeric(Risk_Grade), y = Baseline_Total_rate, color = 'blue'), size = 1)+
+    geom_point(data = PSI_table_plot,aes(x = as.numeric(Risk_Grade), y = Baseline_Total_rate, color = 'blue'), size = 3)+
+    #驗證樣本
+    geom_line(data = PSI_table_plot,aes(x = as.numeric(Risk_Grade), y = total_rate, color = 'green'), size = 1)+
+    geom_point(data = PSI_table_plot,aes(x = as.numeric(Risk_Grade), y = total_rate, color = 'green'), size = 3) +
+    labs(x = "評等" , y = "樣本占比",title = "PSI") +
+    theme(title=element_text(family="mono",size=14, face="bold",hjust=0.2,lineheight=0.2),plot.title = element_text(hjust = 0.5),
+          axis.title.x=element_text(family="mono",size=12,face="bold",hjust=0.5),
+          axis.title.y=element_text(size=12,hjust=0.5) )+ 
+    theme(panel.background=element_rect(fill=rgb(255,255,255,maxColorValue = 255),color=rgb(178,178,178,maxColorValue = 255),col = "blue",linetype = "solid"),panel.grid.major = element_line(colour = rgb(178,178,178,maxColorValue = 255),size = 0.2,linetype = "solid"))+theme(plot.margin = unit(c(1,1,1,1),"cm"))+scale_x_continuous(breaks=1:dim(PSI_table_0)[1], labels=seq(1:dim(PSI_table_0)[1]))+
+    
+    scale_color_manual(name = "group",
+                       values = c('blue' = 'blue', "green" = 'green'), 
+                       breaks = c("blue", "green"),
+                       labels = c('建模樣本', '監控樣本')) +
+    theme(legend.title=element_blank(),
+          legend.position = 'bottom',
+          legend.text = element_text(family="mono", size = 10) )
+  
+  PSI_index_desc<-ifelse(PSI_index<0.1,"模型無顯著變動",ifelse(PSI_index <=0.25,"模型呈現輕微變動","模型呈現顯著變動"))
+  
+  result<-list(PSI_value=PSI_index,PSI_table=PSI_table,PSI_desc=PSI_index_desc,PSI_plot=PSI_plot,PSI_table_view=PSI_table_view ,PSI_table_view_html=kable(PSI_table_view , "html", caption="PSI 檢定") %>%  kable_styling(bootstrap_options = c("striped", "hover","condensed"), full_width = F))
+  
+  
+  return(result)
+  
+} 
+
+
+get_summary_PSI<-function(datafile,model_build_datafile,class_index=class_type,model_index=model_type,yymm_index=model_yymm){
+  
+  
+  model_build_datafile<-sqldf("Select * from model_build_datafile")
+  
+  model_build_datafile[,"Rating"]<-as.character(model_build_datafile[,"Risk_Grade"])
+  
+  # 計算各評等的總個數、正常戶個數及違約個數
+  # if(model_index=="信用卡A卡"){
+  #   
+  #   model_result_01<-sqldf(paste0("select distinct Rating_ as Rating ,sum(Cnt) as total from datafile group by Rating_"))
+  #   
+  # }else{
+    
+    model_result_01<- sqldf(paste0("select distinct Rating_ as Rating ,count(*) as total from datafile group by Rating_"))
+    
+  # }
+  
+  model_result_01[,"Rating"]<-as.character(model_result_01[,"Rating"])
+  
+  
+  model_result_0<-sqldf("select a.Rating, a.Baseline_Total,
+                        case when b.total is null then 0 else b.total end as total
+                        
+                        from model_build_datafile a
+                        
+                        left join model_result_01 b
+                        on a.Rating=b.Rating
+                        ")
+  
+  
+  # 計算各等級的累積個數占比
+  model_result_0[,"total_ratio"]<-round(model_result_0[,"total"]/sum(model_result_0[,"total"]),8)
+  model_result_0[,"Baseline_total_ratio"]<-round(model_result_0[,"Baseline_Total"]/sum(model_result_0[,"Baseline_Total"]),8)
+  
+  
+  row_end<-dim(model_result_0)[1]+1
+  
+  model_result_0[row_end,"Rating"]<-"合計"
+  model_result_0[row_end,"Baseline_Total"]<-sum(model_result_0[1:(row_end-1),"Baseline_Total"],na.rm = TRUE)
+  
+  
+  model_result_0[row_end,"total"]<-sum(model_result_0[,"total"],na.rm = TRUE)
+  
+  model_result_0[,"Difference"]<-model_result_0[,"Baseline_total_ratio"]-model_result_0[,"total_ratio"]
+  model_result_0[,"ratio"]<- ifelse(is.finite(model_result_0[,"Baseline_total_ratio"]/model_result_0[,"total_ratio"]),model_result_0[,"Baseline_total_ratio"]/model_result_0[,"total_ratio"],NA)
+  model_result_0[,"ln_ratio"]<-log(model_result_0[,"ratio"])
+  model_result_0[,"PSI_index"]<-model_result_0[,"Difference"]*model_result_0[,"ln_ratio"]
+  
+  PSI_index <- sum(model_result_0[is.finite(model_result_0[,"PSI_index"]),"PSI_index"],na.rm = T)
+  model_result_0[row_end,"PSI_index"]<-PSI_index
+  
+  PSI_index_desc<-ifelse(PSI_index<0.1,"模型無顯著變動",ifelse(PSI_index <=0.25,"模型呈現輕微變動","模型呈現顯著變動"))
+  
+  model_result_0[,"Aspect"]<-class_index
+  model_result_0[,"Model"]<-model_index
+  model_result_0[,"Monitor_Date"]<-yymm_index
+  
+  PSI_table<-model_result_0[,c("Aspect", "Model", "Monitor_Date","Rating", "Baseline_Total" ,"Baseline_total_ratio", "total" ,"total_ratio" ,"Difference", "ratio", "ln_ratio" ,"PSI_index"  )]
+  
+  result<-list(PSI_value=PSI_index,PSI_desc=PSI_index_desc,PSI_table=PSI_table)
+  
+  
+  return(result)
+  
+}
+
+
+
+# channel_path="D:/Project/R_code/shiny_view_20191002/database/View_Database.mdb"
+
+# datafile = Data_desc_summary
+#   TableName = 'Data_desc_summary'
+### 存入資料
+sql_updata_queny <- function(datafile,TableName,model_index=model_type,yymm_index=model_yymm,channel_path='/database/View_Database.mdb'){
+
+  channel <- odbcConnectAccess(paste0(getwd(),channel_path))
+
+  sql_code <-sprintf("select * from %s  where Model = '%s' and Monitor_Date = '%s'",TableName,model_index,yymm_index)
+  
+  DataQuery<-sqlQuery(channel,sql_code)
+  
+  
+  if(dim(DataQuery)[1]>0 && !is.null(dim(DataQuery)[1])){
+    
+    delete_code <-sprintf("delete * from %s  where Model = '%s' and Monitor_Date = '%s'",TableName,model_index,yymm_index)
+    
+    sqlQuery(channel,delete_code)
+    
+  } 
+  
+
+  sqlSave(channel=channel,dat=datafile,tablename = TableName,rownames = FALSE, append = TRUE)
+  
+  odbcClose(channel)
+
+}
+
+# 
+# datafile= Ranksummary
+# TableName= 'Rank_dis_summary'
+

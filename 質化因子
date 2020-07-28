@@ -1,0 +1,344 @@
+USE [CRModel]
+GO
+/****** Object:  StoredProcedure [dbo].[usp_PD_IcreditQuaFactor]    Script Date: 2020/7/28 上午 09:18:34 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- =============================================
+-- 程式代號:usp_PD_IcreditQuaFactor
+-- 程式說明:本行客戶基本資料
+-- 版本變更:
+-- XX.  YYYY/MM/DD  VER  AUTHOR  COMMENTS
+-- ==   ==========  ===  ======  ========
+-- 1.   2020/06/22  1.0  Harry   新建
+-- 2.   2020/07/08  2.0  Harry   新增B5/C2/
+-- 3.   2020/07/10  3.0  Harry   增加QUID1/QUID3/D4/C4
+-- 4.   2020/07/16  3.0  Harry   修改B1/B2/B3/B4/D2
+-- =============================================
+ALTER PROCEDURE [dbo].[usp_PD_IcreditQuaFactor]
+	
+AS
+BEGIN
+        		
+		   DELETE [dbo].[PD_IcreditQuaFactor]
+
+
+
+		
+		   INSERT INTO [dbo].[PD_IcreditQuaFactor]
+           (
+		    [DATA_YM]
+           ,[IDNO]
+		   ,[APPID]
+		   ,[SPID]
+		   ,[FINDATE]
+		   ,CID
+		   ,QUID3
+		   ,QUID1
+		    )
+			SELECT CreateDate
+				   ,[IDNO]
+				   ,APPID
+				   ,[SPID]
+				   ,FINDATE
+				   ,CID
+				   ,QUID3
+				   ,QUID1
+		   FROM [dbo].[PD_CIF]
+
+
+		   --A1 公司成立年數
+		   --A2 組織型態
+
+		   UPDATE A
+		   SET A1=CASE WHEN ISNULL(LEN(DOB),'')='' OR LEN(DOB)<>8 OR SUBSTRING(DOB,1,2)<='16' OR SUBSTRING(DOB,1,4)>='2021' OR SUBSTRING(DOB,7,2)='00' THEN NULL ELSE DATEDIFF(YEAR,CAST(B.DOB AS DATE),CAST(A.DATA_YM AS DATE)) END, 
+		       A2=CASE WHEN ISNULL(B.CorpType,'')='' THEN NULL ELSE B.CorpType END 
+		   FROM PD_IcreditQuaFactor A
+		   LEFT JOIN PD_CIF B			
+		   ON A.IDNO=B.IDNO AND A.APPID=B.APPID 
+	
+		   --A3 是否集團戶
+		   UPDATE A
+		   SET A3=CASE WHEN ISNULL(B.GroupID,'')<>'' THEN 1 
+		               WHEN ISNULL(C.GroupID,'')<>'' THEN 1 
+				  ELSE 2 END
+		   FROM PD_IcreditQuaFactor A
+		   LEFT JOIN AL_Profile B	ON A.APPID=B.APPID
+		   LEFT JOIN AL_Profile_OLD C	ON A.APPID=C.APPID	
+		    
+
+		   --B1是否連續兩年虧損
+		   --B2是否連續三年虧損
+		   --B3是否連續兩年淨值為負
+		   --B4是否連續三年淨值為負
+		   --D2查核報告類型
+		   UPDATE A
+		   SET B1=CASE WHEN ISNULL(B.S200,0)<0 AND ISNULL(C.S200,0)<0 THEN 1 ELSE 2 END,
+		       B2=CASE WHEN ISNULL(B.S200,0)<0 AND ISNULL(C.S200,0)<0 AND ISNULL(D.S200,0)<0 THEN 1 ELSE 2 END,
+			   B3=CASE WHEN ISNULL(B.D200,0)<0 AND ISNULL(C.D200,0)<0 THEN 1 ELSE 2 END,
+			   B4=CASE WHEN ISNULL(B.D200,0)<0 AND ISNULL(C.D200,0)<0 AND ISNULL(D.D200,0)<0 THEN 1 ELSE 2 END,
+			   D2=CASE WHEN ISNULL(T.AccOpinion,'')<>'' THEN T.AccOpinion ELSE 6 END 
+		   FROM PD_IcreditQuaFactor A
+		   LEFT JOIN PD_Icredit_Accounting_Temp T ON A.SPID=T.SPID AND A.APPID=T.APPID AND SUBSTRING(A.FINDATE,1,4)=T.SPYear
+		   LEFT JOIN PD_Icredit_Accounting_Temp B ON A.SPID=B.SPID AND A.APPID=B.APPID AND SUBSTRING(A.FINDATE,1,4)-1=B.SPYear
+		   LEFT JOIN PD_Icredit_Accounting_Temp C ON A.SPID=C.SPID AND A.APPID=C.APPID AND SUBSTRING(A.FINDATE,1,4)-2=C.SPYear
+		   LEFT JOIN PD_Icredit_Accounting_Temp D ON A.SPID=D.SPID AND A.APPID=D.APPID AND SUBSTRING(A.FINDATE,1,4)-3=D.SPYear
+
+		   --B5 營業所在地
+		   
+		   UPDATE A
+		   SET B5=T.BType
+		   FROM PD_IcreditQuaFactor A
+		   LEFT JOIN [10.11.36.82].DB_CC.[dbo].[BR_Address] T ON A.CID=T.CID COLLATE Chinese_Taiwan_Stroke_CI_AS 
+
+		   select * from #
+		   
+
+		   --B6 是否有工廠
+		   UPDATE A
+		   SET B6=T.FactoryFlag
+		   FROM PD_IcreditQuaFactor A
+		   LEFT JOIN BR_CorpDetail T ON A.CID=T.CID
+
+		   --C1 三年內負責人變動次數
+		   UPDATE A
+		   SET C1=C.CNT
+		   FROM PD_IcreditQuaFactor A
+		   LEFT JOIN 
+           (
+				SELECT A.IDNO,A.CreateDate,COUNT(DISTINCT B.BOSS_ID)-1 CNT
+				FROM PD_CIF A,PD_CIF B
+				WHERE A.IDNO=B.IDNO AND DATEDIFF(YEAR,CAST(B.CreateDate AS DATE),CAST(A.CreateDate AS DATE))<=2 AND B.CreateDate<=A.CreateDate
+				GROUP BY A.IDNO,A.CreateDate
+				--ORDER BY A.IDNO,A.ApproveDate
+			)C
+			ON A.IDNO=C.IDNO AND A.DATA_YM=C.CreateDate	
+
+			--C2經營團隊最高負責人入職年數
+			    --取同CID下最高職級的該筆
+				SELECT B.CID,ORDER_NO,MIN(MG_ORDER) MG_ORDER
+				INTO #TEMP
+						FROM(
+							--解決同職級有兩筆,取第一筆出來
+							SELECT A.*,ROW_NUMBER() OVER (PARTITION BY CID,MG_ORDER ORDER BY SEQNO) AS ORDER_NO
+							FROM(
+									SELECT *,CASE WHEN MGTitle='01' THEN '1'  --董事長
+														   WHEN MGTitle='06' THEN '2'  --副董事長
+														   WHEN MGTitle='09' THEN '3'  --董事
+														   WHEN MGTitle='02' THEN '4'  --總經理
+														   WHEN MGTitle='03' THEN '5'  --副總經理
+														   WHEN MGTitle='07' THEN '6'  --協理
+														   WHEN MGTitle='04' THEN '7'  --經理
+														   WHEN MGTitle='05' THEN '8'  --副理
+														   WHEN MGTitle='08' THEN '9'  --其他
+														   END AS MG_ORDER
+									FROM [10.11.36.82].DB_CC.dbo.BR_ManageGroup 
+								)A
+								--WHERE CID='ECI1807030088'
+							)B
+						WHERE ORDER_NO=1
+				GROUP BY B.CID,ORDER_NO
+
+				--255151
+				SELECT A.*
+				INTO #TEMP1
+				FROM(
+								SELECT A.*,ROW_NUMBER() OVER (PARTITION BY CID,MG_ORDER ORDER BY SEQNO) AS ORDER_NO
+								FROM(
+										SELECT *,CASE WHEN MGTitle='01' THEN '1'  --董事長
+															   WHEN MGTitle='06' THEN '2'  --副董事長
+															   WHEN MGTitle='09' THEN '3'  --董事
+															   WHEN MGTitle='02' THEN '4'  --總經理
+															   WHEN MGTitle='03' THEN '5'  --副總經理
+															   WHEN MGTitle='07' THEN '6'  --協理
+															   WHEN MGTitle='04' THEN '7'  --經理
+															   WHEN MGTitle='05' THEN '8'  --副理
+															   WHEN MGTitle='08' THEN '9'  --其他
+															   END AS MG_ORDER
+										FROM [10.11.36.82].DB_CC.dbo.BR_ManageGroup 
+									)A
+					)A INNER JOIN #TEMP B ON A.CID=B.CID AND A.MG_ORDER=B.MG_ORDER AND A.ORDER_NO=B.ORDER_NO
+
+				--取同CID下最高職級的該筆
+				SELECT B.CID,ORDER_NO,MIN(MG_ORDER) MG_ORDER
+				INTO #TEMP2
+						FROM(
+							--解決同職級有兩筆,取第一筆出來
+							SELECT A.*,ROW_NUMBER() OVER (PARTITION BY CID,MG_ORDER ORDER BY SEQNO) AS ORDER_NO
+							FROM(
+									SELECT *,CASE WHEN MGTitle='01' THEN '1'  --董事長
+														   WHEN MGTitle='06' THEN '2'  --副董事長
+														   WHEN MGTitle='09' THEN '3'  --董事
+														   WHEN MGTitle='02' THEN '4'  --總經理
+														   WHEN MGTitle='03' THEN '5'  --副總經理
+														   WHEN MGTitle='07' THEN '6'  --協理
+														   WHEN MGTitle='04' THEN '7'  --經理
+														   WHEN MGTitle='05' THEN '8'  --副理
+														   WHEN MGTitle='08' THEN '9'  --其他
+														   END AS MG_ORDER
+									FROM [10.11.37.120].DB_CC.dbo.BR_ManageGroup
+								)A
+								--WHERE CID='ECI1807030088'
+							)B
+						WHERE ORDER_NO=1
+				GROUP BY B.CID,ORDER_NO
+
+				--287382
+				SELECT A.*
+				INTO #TEMP3
+				FROM(
+										--解決同職級有兩筆,取第一筆出來
+									SELECT A.*,ROW_NUMBER() OVER (PARTITION BY CID,MG_ORDER ORDER BY SEQNO) AS ORDER_NO
+									FROM(
+											SELECT *,CASE WHEN MGTitle='01' THEN '1'  --董事長
+																   WHEN MGTitle='06' THEN '2'  --副董事長
+																   WHEN MGTitle='09' THEN '3'  --董事
+																   WHEN MGTitle='02' THEN '4'  --總經理
+																   WHEN MGTitle='03' THEN '5'  --副總經理
+																   WHEN MGTitle='07' THEN '6'  --協理
+																   WHEN MGTitle='04' THEN '7'  --經理
+																   WHEN MGTitle='05' THEN '8'  --副理
+																   WHEN MGTitle='08' THEN '9'  --其他
+																   END AS MG_ORDER
+											FROM [10.11.37.120].DB_CC.dbo.BR_ManageGroup
+										)A
+						
+					)A INNER JOIN #TEMP2 B ON A.CID=B.CID AND A.MG_ORDER=B.MG_ORDER AND A.ORDER_NO=B.ORDER_NO
+
+	
+		   UPDATE A
+		   SET C2=CASE WHEN ISNULL(B.OnBoardDate,'')<>'' THEN CONVERT(INT,DATEDIFF(YEAR,CAST(B.OnBoardDate AS DATE),CAST(A.DATA_YM AS DATE))) 
+		              WHEN C.MGExperience IS NOT NULL THEN CAST(C.MGExperience AS INT) END 
+		   FROM PD_IcreditQuaFactor A
+		   LEFT JOIN #TEMP1 B ON A.CID =B.CID COLLATE Chinese_Taiwan_Stroke_CI_AS
+		   LEFT JOIN #TEMP3 C ON A.CID =C.CID COLLATE Chinese_Taiwan_Stroke_CI_AS
+	
+
+			--C4經營團隊最高負責人過去曾在別家公司擔任董監事且該公司被拒往過
+			UPDATE A
+			SET C4=ISNULL(C.Refuse_YN,'2')
+			FROM PD_IcreditQuaFactor A
+			   LEFT JOIN 
+			   (
+				   SELECT DISTINCT A.APPID,A.IDNO,MAX(CASE WHEN D.rjdate IS NOT NULL THEN '1'END) AS Refuse_YN
+					FROM(
+							SELECT APPID,CREATEDATE,IDNO,BOSS_ID,BOSS_QUID3
+							FROM PD_CIF
+							--WHERE APPID='EAP1612140003'
+							--ORDER BY IDNO,APPID
+						)A
+						LEFT JOIN
+						(
+							SELECT *
+							FROM BR_Profile
+						)B
+						ON A.BOSS_ID=B.CustomerID
+						LEFT JOIN
+					   (
+						SELECT QUID,QUERY_CONDITION,BAN 
+						FROM [10.11.36.82].DB_CE.[dbo].[CC_JCIC_ACM009]
+						WHERE POS_CODE IN ('01','02','03','04','99','36') AND LEN(QUERY_CONDITION)='10' 
+						UNION 
+						SELECT QUID,QUERY_CONDITION,BAN 
+						FROM [10.11.37.120].DB_CE.[dbo].[CC_JCIC_ACM009]
+						WHERE POS_CODE IN ('01','02','03','04','99','36') AND LEN(QUERY_CONDITION)='10' 
+						)C
+						ON A.BOSS_QUID3=C.QUID COLLATE Chinese_Taiwan_Stroke_CI_AS AND B.IDNO=C.QUERY_CONDITION COLLATE Chinese_Taiwan_Stroke_CI_AS
+						LEFT JOIN 
+						(
+						  --判斷客戶首次發生拒往的日期
+						  SELECT DISTINCT cidno,rjdate
+						  FROM db_ckrj_dds
+						  WHERE type='DBU' AND rjdate<>'' AND LEN(cidno)=8 AND ISNUMERIC(cidno)=1 AND SUBSTRING(rjdate,1,6) BETWEEN 200801 AND 201912
+						)D ON C.BAN=D.cidno COLLATE Chinese_Taiwan_Stroke_CI_AS AND A.CreateDate>=D.rjdate                
+						WHERE A.IDNO<>C.BAN COLLATE Chinese_Taiwan_Stroke_CI_AS
+						GROUP BY A.APPID,A.IDNO
+				--ORDER BY A.IDNO,A.APPID
+			   )C
+			   ON A.APPID=C.APPID AND A.IDNO=C.IDNO 
+
+			
+
+
+
+			--D1  是否有訟訴情事
+		   UPDATE A
+		   SET D1=C.LawsuitFlag
+		   FROM PD_IcreditQuaFactor A
+		   LEFT JOIN 
+           (
+			SELECT * FROM BR_Customer
+		   )C
+		   ON A.CID=C.CID
+
+		  
+		  --D3 與本行授信往來年數
+		   UPDATE A
+		   SET D3=DATEDIFF(YEAR,CAST(C.LOAN_STARTDATE AS DATE),CAST(A.DATA_YM  AS DATE))
+		   FROM PD_IcreditQuaFactor A
+		   --LEFT JOIN
+		   --( 
+			--SELECT * FROM PD_CIF
+		   --)
+		   --B ON A.APPID=B.AppID
+		   LEFT JOIN 
+           (
+			SELECT PidNo,MIN(SUBSTRING(YYYYMM,1,4)+SUBSTRING(YYYYMM,6,2)+'01') LOAN_STARTDATE FROM LoanMonthlyHis GROUP BY PidNo
+		   )C
+		   ON A.IDNO=C.PidNo
+
+
+		
+
+		  --D4 在本行存款往來年數
+		  
+		   SELECT QUID,CreditID,MIN(StartDate) StartDate
+		   INTO #TEMP4
+		   FROM(
+				SELECT QUID,CreditID,StartDate
+				FROM [10.11.36.82].DB_CE.[dbo].[CC_BSP_Deposit]
+				WHERE ISNUMERIC(CreditID)=1 AND LEN(CreditID)=8
+				UNION 
+				SELECT QUID,CreditID,StartDate
+				FROM [10.11.37.120].DB_CE.[dbo].[CC_BSP_Deposit]
+				WHERE ISNUMERIC(CreditID)=1 AND LEN(CreditID)=8
+				)A
+		   GROUP BY QUID,CreditID 
+		   ORDER BY QUID,CreditID ASC
+
+		   UPDATE A
+		   SET D4=DATEDIFF(YEAR,CAST(C.StartDate AS DATE),CAST(A.DATA_YM AS DATE))
+		   FROM PD_IcreditQuaFactor A
+		   LEFT JOIN #TEMP4 C
+		   ON A.IDNO=C.CreditID COLLATE Chinese_Taiwan_Stroke_CI_AS AND A.QUID1=C.QUID COLLATE Chinese_Taiwan_Stroke_CI_AS
+
+
+		   --D5 是否送信保基金
+		   UPDATE A
+		   SET D5=ISNULL(B.SMEG_YN,'N')
+		   FROM PD_IcreditQuaFactor A
+		   LEFT JOIN  
+		   (
+		   	SELECT DISTINCT A.AppID,A.IDNO,CASE WHEN E.ColleteralKind='7P01' THEN 'Y' END AS SMEG_YN
+			FROM PD_CIF A
+			LEFT JOIN [10.11.36.82].DB_CC.dbo.AL_LineCompany B ON A.APPID=B.APPID COLLATE Chinese_Taiwan_Stroke_CI_AS AND A.CustomerID=B.CustomerID COLLATE Chinese_Taiwan_Stroke_CI_AS  --額度公司檔
+			--LEFT JOIN [10.11.36.82].DB_CC.dbo.AL_LineLimit  C ON A.AppID=C.APPID COLLATE Chinese_Taiwan_Stroke_CI_AS AND B.LINEID=C.LINEID  AND B.SubLineID=C.SubLineID                  --核貸書額度檔
+			LEFT JOIN [10.11.36.82].DB_CC.dbo.AL_ColleteralLineLimit D ON A.AppID=D.APPID COLLATE Chinese_Taiwan_Stroke_CI_AS AND B.LINEID=D.LINEID  AND B.SubLineID=D.SubLineID         --擔保品科目對應檔
+			LEFT JOIN [10.11.36.82].DB_CC.dbo.AL_Colleteral E ON A.AppID=E.APPID COLLATE Chinese_Taiwan_Stroke_CI_AS AND D.ColleteralID=E.ColleteralID                                   --擔保品檔
+			WHERE E.ColleteralKind='7P01'
+			)B
+			ON A.IDNO=B.IDNO AND A.AppID=B.AppID 
+
+
+
+
+
+		  	DROP TABLE #TEMP
+			DROP TABLE #TEMP1
+			DROP TABLE #TEMP2
+			DROP TABLE #TEMP3
+			DROP TABLE #TEMP4
+		   
+
+END
